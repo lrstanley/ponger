@@ -1,0 +1,16 @@
+*.log
+~*
+*.tmp
+*.txt
+*.toml
+!example.toml
+
+*.exe
+*.test
+*.prof
+
+# go version deps
+vendor/*
+!vendor/*.json
+
+ponger
