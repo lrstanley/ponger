@@ -53,7 +53,6 @@ type Host struct {
 	IP     net.IP
 	Added  time.Time
 
-	mu            sync.Mutex
 	Online        bool
 	LastOnline    time.Time
 	LastOffline   time.Time
@@ -66,14 +65,28 @@ func (h *Host) Stop() {
 }
 
 func (h *Host) Send(text string) {
-	api := newSlackClient()
-	_, _, _, err := api.SendMessage(
-		h.Origin.Channel,
-		slack.MsgOptionAsUser(true),
-		slack.MsgOptionText(text, false),
-	)
+	outChannel, err := lookupChannel(conf.OutgoingChannel)
 	if err != nil {
-		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP.String(), h.Origin.Msg.Username, err)
+		logger.Printf("error checking %s: %s", h.IP, err)
+		return
+	}
+
+	api := newSlackClient()
+	// _, _, _, err = api.SendMessage(
+	// 	outChannel,
+	// 	slack.MsgOptionAsUser(true),
+	// 	slack.MsgOptionText(text, false),
+	// )
+	params := slack.NewPostMessageParameters()
+	params.AsUser = true
+	params.Text = text
+	// Don't use this if you don't want threads.
+	params.ThreadTimestamp = h.Origin.Timestamp
+
+	_, _, err = api.PostMessage(outChannel, text, params)
+
+	if err != nil {
+		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.Msg.Username, err)
 	}
 }
 
@@ -104,7 +117,6 @@ func (h *Host) Watch() {
 			if check == nil {
 				if h.Online {
 					// Host is still online.
-					// TODO: check for surpased for removal?
 				} else {
 					// Host has become online.
 					h.Online = true
@@ -112,10 +124,17 @@ func (h *Host) Watch() {
 					// Add up the downtime.
 					h.TotalDowntime += time.Since(h.LastOffline)
 
-					h.Sendf("<@%s> host %s now online (downtime counter: `%s`)", h.Origin.User, h.IP.String(), h.TotalDowntime)
+					h.Sendf("<@%s> host %s now online (downtime counter: `%s`)", h.Origin.User, h.IP, h.TotalDowntime)
 				}
 
 				h.LastOnline = time.Now()
+
+				if (h.LastOffline.IsZero() && time.Since(h.Added) > time.Duration(conf.RemovalTimeout)*time.Second) ||
+					(!h.LastOffline.IsZero() && time.Since(h.LastOffline) > time.Duration(conf.RemovalTimeout)*time.Second) {
+					logger.Printf("stopped tracking %s: time since last down > %s", h.IP, time.Duration(conf.RemovalTimeout)*time.Second)
+					hostGroup.Remove(h)
+					return
+				}
 				continue
 			}
 
@@ -125,7 +144,7 @@ func (h *Host) Watch() {
 				// Host was previously online, and is now offline.
 				h.Online = false
 
-				h.Sendf("<@%s> host %s now offline", h.Origin.User, h.IP.String())
+				h.Sendf("<@%s> host %s now offline", h.Origin.User, h.IP)
 			} else {
 				// Host is still offline.
 				h.TotalDowntime += time.Since(h.LastOffline)

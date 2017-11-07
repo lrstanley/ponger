@@ -27,8 +27,10 @@ type Flags struct {
 var flags Flags
 
 type Config struct {
-	Token   string `toml:"token"`
-	Channel string `toml:"channel"`
+	Token           string `toml:"token"`
+	IncomingChannel string `toml:"incoming_channel"`
+	OutgoingChannel string `toml:"outgoing_channel"`
+	RemovalTimeout  int    `toml:"removal_timeout_secs"`
 }
 
 var conf Config
@@ -50,7 +52,7 @@ func main() {
 
 	slack.SetLogger(logger)
 
-	if err := newSlack(toSlack); err != nil {
+	if err := newSlackRTM(toSlack); err != nil {
 		logger.Fatalln(err)
 	}
 }
