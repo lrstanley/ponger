@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"regexp"
 	"strings"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"github.com/nlopes/slack"
-	"github.com/y0ssar1an/q"
 )
 
 func newSlackClient() *slack.Client {
@@ -20,7 +20,8 @@ func newSlackClient() *slack.Client {
 }
 
 var reIP = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`)
-var reCommand = regexp.MustCompile(`^!([a-z]+)`)
+var reCommand = regexp.MustCompile(`^!([[:word:]]+)(?: (.*)?)?`)
+var reUnlink = regexp.MustCompile(`<http[^\|]+\|([^>]+)>`)
 
 func newSlackRTM(messageChan chan string) error {
 	channelID, err := lookupChannel(conf.IncomingChannel)
@@ -40,16 +41,37 @@ func newSlackRTM(messageChan chan string) error {
 		case msg := <-rtm.IncomingEvents:
 			switch ev := msg.Data.(type) {
 			case *slack.ConnectedEvent:
+				logger.Printf(
+					"connected to %s.slack.com: %s (%d users, %d channels, user %q)",
+					ev.Info.Team.Domain,
+					ev.Info.Team.Name,
+					len(ev.Info.Users),
+					len(ev.Info.Channels),
+					ev.Info.User.Name,
+				)
 				botID = ev.Info.User.ID
-				rtm.SendMessage(rtm.NewOutgoingMessage("_started up_", channelID))
+				// rtm.SendMessage(rtm.NewOutgoingMessage("_started up_", channelID))
 			case *slack.MessageEvent:
-				if ev.User == botID {
+				if ev.User == botID || ev.Text == "" {
 					continue
 				}
 
-				q.Q(ev)
-
 				logger.Printf("<%s:%s> %s", ev.Channel, ev.User, ev.Text)
+
+				cmd := reCommand.FindStringSubmatch(reUnlink.ReplaceAllString(ev.Text, "$1"))
+				if len(cmd) == 3 && cmd[1] != "" {
+					err = cmdHandler(ev, cmd[1], cmd[2])
+					if err != nil {
+						logger.Printf("unable to execute command handler for %q %q: %s", cmd[1], cmd[2], err)
+					}
+					continue
+				}
+
+				// Check if they want automagical checks.
+				set := GetUserSettings(ev.User)
+				if set.ChecksDisabled {
+					continue
+				}
 
 				ips := reIP.FindAllString(ev.Text, -1)
 				if len(ips) == 0 {
@@ -74,12 +96,14 @@ func newSlackRTM(messageChan chan string) error {
 					}
 
 					go host.Watch()
-					hostGroup.Add(host)
+					hostGroup.Add(netIP.String(), host)
 
-					// err = rtm.AddReaction("white_check_mark", slack.NewRefToMessage(ev.Channel, ev.Timestamp))
-					// if err != nil && !strings.Contains(err.Error(), "already_reacted") {
-					// 	logger.Printf("error adding reaction: %s", err)
-					// }
+					if conf.ReactionOnStart {
+						err = rtm.AddReaction("white_check_mark", slack.NewRefToMessage(ev.Channel, ev.Timestamp))
+						if err != nil && !strings.Contains(err.Error(), "already_reacted") {
+							logger.Printf("error adding reaction: %s", err)
+						}
+					}
 				}
 			case *slack.RTMError:
 				return ev
@@ -90,11 +114,128 @@ func newSlackRTM(messageChan chan string) error {
 					return nil
 				}
 			default:
-				// fmt.Printf("Unexpected: %v\n", msg.Data)
 			}
 		case msg := <-messageChan:
 			rtm.SendMessage(rtm.NewOutgoingMessage(msg, channelID))
 		}
+	}
+
+	return nil
+}
+
+func cmdHandler(msg *slack.MessageEvent, cmd, args string) error {
+	cmd = strings.ToLower(cmd)
+	api := newSlackClient()
+	var err error
+
+	params := slack.NewPostMessageParameters()
+	params.AsUser = true
+	params.ThreadTimestamp = msg.ThreadTimestamp
+	var reply string
+
+	switch cmd {
+	case "enable":
+		s := GetUserSettings(msg.User)
+		if s.ChecksDisabled {
+			s.ChecksDisabled = false
+			SetUserSettings(s)
+			reply = "*re-enabled automatic host checks for you.*"
+			break
+		}
+
+		reply = "*automatic host checks already enabled for you.*"
+		break
+	case "disable":
+		s := GetUserSettings(msg.User)
+		if s.ChecksDisabled {
+			reply = "*automatic host checks already disabled for you.*"
+			break
+		}
+
+		s.ChecksDisabled = true
+		SetUserSettings(s)
+		reply = "*disabled automatic host checks for you, and flushing existing checks.*"
+
+		hostGroup.Clear("", msg.User)
+		break
+	case "active", "list", "listall", "all":
+		dump := hostGroup.Dump()
+
+		if dump == "" {
+			reply = "no active hosts being monitored."
+			break
+		}
+
+		reply = "```\n" + dump + "```"
+		break
+	case "clearall", "stopall", "killall":
+		hostGroup.Clear("", "")
+
+		reply = "sending cancellation signal to active checks."
+		break
+	case "clear", "stop", "kill":
+		if args == "" {
+			hostGroup.Clear("", msg.User)
+
+			reply = "sending cancellation signal to *your* active checks."
+			break
+		}
+
+		argv := strings.Fields(args)
+		for _, query := range argv {
+			hostGroup.Clear(query, "")
+		}
+
+		reply = "sending cancellation signal to checks matching: `" + strings.Join(argv, "`, `") + "`"
+		break
+	case "ping", "check", "pong":
+		argv := strings.Fields(args)
+		for _, query := range argv {
+			var ip net.IP
+			var addrs []net.IP
+
+			ip = net.ParseIP(query)
+			if ip == nil {
+				addrs, err = net.LookupIP(query)
+				if err != nil {
+					reply += fmt.Sprintf("invalid addr/host: `%s`\n", query)
+					continue
+				}
+
+				ip = addrs[0]
+			}
+
+			host := &Host{
+				closer: make(chan struct{}, 1),
+				Origin: msg,
+				IP:     ip,
+				Added:  time.Now(),
+			}
+
+			go host.Watch()
+			hostGroup.Add(query, host)
+
+			if !conf.NotifyOnStart {
+				reply += fmt.Sprintf("added check for `%s`\n", query)
+			}
+		}
+
+		break
+	case "help", "halp":
+		reply = strings.Replace(`how2basic:
+|!disable| disables *ponger* auto-monitoring and clears all of *your* checks
+|!enable| enables *ponger* auto-monitoring
+|!active| lists all active host/ip checks
+|!clearall| clears all checks
+|!clear [query]| clear checks matching *query*, or all of *your* checks
+|!help| this help info :doge:`, "|", "`", -1)
+	default:
+		reply = fmt.Sprintf("unknown command `%s`. use `!help`?", cmd)
+	}
+
+	if reply != "" {
+		_, _, err = api.PostMessage(msg.Channel, reply, params)
+		return err
 	}
 
 	return nil

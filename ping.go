@@ -4,10 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/paulstuart/ping"
+	glob "github.com/ryanuber/go-glob"
 
 	"github.com/nlopes/slack"
 )
@@ -19,6 +23,54 @@ type Hosts struct {
 	inv map[string]*Host
 }
 
+func (h *Hosts) Dump() (out string) {
+	h.Lock()
+	defer h.Unlock()
+
+	var keys []string
+	var maxLen int
+	for key := range h.inv {
+		if len(key) > maxLen {
+			maxLen = len(key)
+		}
+
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		out += fmt.Sprintf(
+			"%-"+strconv.Itoa(maxLen)+"s | %-15s | watching: %4s | online: %t\n",
+			key, h.inv[key].IP, time.Since(h.inv[key].Added).Truncate(time.Second), h.inv[key].Online,
+		)
+	}
+
+	return out
+}
+
+func (h *Hosts) Clear(query, user string) {
+	h.Lock()
+	defer h.Unlock()
+
+	for key := range h.inv {
+		if query != "" {
+			if glob.Glob(strings.ToLower(query), strings.ToLower(key)) {
+				close(h.inv[key].closer)
+			}
+			return
+		}
+
+		if user != "" {
+			if h.inv[key].Origin.User == user {
+				close(h.inv[key].closer)
+			}
+			continue
+		}
+
+		close(h.inv[key].closer)
+	}
+}
+
 func (h *Hosts) Exists(id string) (ok bool) {
 	h.Lock()
 	defer h.Unlock()
@@ -28,15 +80,17 @@ func (h *Hosts) Exists(id string) (ok bool) {
 	return ok
 }
 
-func (h *Hosts) Add(host *Host) error {
+func (h *Hosts) Add(id string, host *Host) error {
 	h.Lock()
 	defer h.Unlock()
 
-	if _, ok := h.inv[host.IP.String()]; ok {
+	if _, ok := h.inv[id]; ok {
 		return errors.New("host already exists")
 	}
 
-	h.inv[host.IP.String()] = host
+	logger.Printf("added: %s", host.IP)
+
+	h.inv[id] = host
 	return nil
 }
 
@@ -44,6 +98,7 @@ func (h *Hosts) Remove(host *Host) {
 	h.Lock()
 	defer h.Unlock()
 
+	logger.Printf("removing: %s", host.IP)
 	delete(h.inv, host.IP.String())
 }
 
@@ -99,21 +154,45 @@ func (h *Host) Watch() {
 	if first == nil {
 		h.Online = true
 		h.LastOnline = time.Now()
-		h.Sendf("host %s is online :ok_hand:", h.IP.String())
+		if conf.NotifyOnStart {
+			h.Sendf("host %s is online :ok_hand:", h.IP.String())
+		}
 	} else {
 		h.Online = false
 		h.LastOffline = time.Now()
-		h.Sendf("host %s is offline :radioactive_sign:", h.IP.String())
+		if conf.NotifyOnStart {
+			h.Sendf("host %s is offline :radioactive_sign:", h.IP.String())
+		}
 	}
 
 	for {
 		select {
 		case <-h.closer:
+			hostGroup.Remove(h)
 			return
-		default:
-			time.Sleep(20 * time.Second)
+		case <-time.After(10 * time.Second):
+			if time.Since(h.Added) > time.Duration(conf.ForcedTimeout)*time.Second {
+				logger.Printf("removing %s: total time exceeds %d seconds", h.IP, conf.ForcedTimeout)
+				hostGroup.Remove(h)
+				return
+			}
 
-			check := verifyHost(h.IP.String(), 3)
+			var check error
+			for i := 0; i < 3; i++ {
+				select {
+				case <-h.closer:
+					hostGroup.Remove(h)
+					return
+				case <-time.After(10 * time.Second):
+				}
+
+				logger.Printf("pinging %s [%d/3]", h.IP.String(), i+1)
+				check = ping.Pinger(h.IP.String(), 2)
+				if check != nil {
+					break
+				}
+			}
+
 			if check == nil {
 				if h.Online {
 					// Host is still online.
@@ -124,14 +203,14 @@ func (h *Host) Watch() {
 					// Add up the downtime.
 					h.TotalDowntime += time.Since(h.LastOffline)
 
-					h.Sendf("<@%s> host %s now online (downtime counter: `%s`)", h.Origin.User, h.IP, h.TotalDowntime)
+					h.Sendf("host %s now online (downtime counter: `%s`)", h.IP, h.TotalDowntime.Truncate(time.Minute))
 				}
 
 				h.LastOnline = time.Now()
 
 				if (h.LastOffline.IsZero() && time.Since(h.Added) > time.Duration(conf.RemovalTimeout)*time.Second) ||
 					(!h.LastOffline.IsZero() && time.Since(h.LastOffline) > time.Duration(conf.RemovalTimeout)*time.Second) {
-					logger.Printf("stopped tracking %s: time since last down > %s", h.IP, time.Duration(conf.RemovalTimeout)*time.Second)
+					logger.Printf("removing %s: time since last down > %s", h.IP, time.Duration(conf.RemovalTimeout)*time.Second)
 					hostGroup.Remove(h)
 					return
 				}
@@ -144,7 +223,7 @@ func (h *Host) Watch() {
 				// Host was previously online, and is now offline.
 				h.Online = false
 
-				h.Sendf("<@%s> host %s now offline", h.Origin.User, h.IP)
+				h.Sendf("host %s now offline", h.IP)
 			} else {
 				// Host is still offline.
 				h.TotalDowntime += time.Since(h.LastOffline)
@@ -153,21 +232,4 @@ func (h *Host) Watch() {
 			h.LastOffline = time.Now()
 		}
 	}
-}
-
-func verifyHost(addr string, count int) (err error) {
-	var previousError error
-	for i := 0; i < count; i++ {
-		previousError = err
-
-		logger.Printf("pinging %s", addr)
-		err = ping.Pinger(addr, 2)
-		if previousError == nil && err != nil {
-			return err
-		}
-
-		time.Sleep(10 * time.Second)
-	}
-
-	return err
 }

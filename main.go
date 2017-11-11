@@ -10,18 +10,10 @@ import (
 	"github.com/nlopes/slack"
 )
 
-// TODO:
-//  - doger? must doge names.
-//  - !registerpings?
-//  - use threads to update the user?
-//  - use reactions to let the user know it's tracking it?
-//  - list all watching.
-//  - !ping (to list all) OR !ping [ip] (to start a ping with a specific ip (or host maybe?))
-//  - !stop [ip]
-
 type Flags struct {
 	ConfigFile string `short:"c" long:"config" description:"configuration file location" default:"config.toml"`
 	Debug      bool   `short:"d" long:"debug" description:"enables slack api debugging"`
+	UserDB     string `long:"user-db" description:"path to user settings database file" default:"user_settings.db"`
 }
 
 var flags Flags
@@ -31,6 +23,9 @@ type Config struct {
 	IncomingChannel string `toml:"incoming_channel"`
 	OutgoingChannel string `toml:"outgoing_channel"`
 	RemovalTimeout  int    `toml:"removal_timeout_secs"`
+	ForcedTimeout   int    `toml:"forced_timeout_secs"`
+	NotifyOnStart   bool   `toml:"notify_on_start"`
+	ReactionOnStart bool   `toml:"reaction_on_start"`
 }
 
 var conf Config
@@ -48,6 +43,14 @@ func main() {
 	_, err = toml.DecodeFile(flags.ConfigFile, &conf)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+	}
+
+	if conf.RemovalTimeout < 120 {
+		conf.RemovalTimeout = 120
+	}
+
+	if conf.ForcedTimeout < 240 {
+		conf.ForcedTimeout = 240
 	}
 
 	slack.SetLogger(logger)
