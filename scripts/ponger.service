@@ -1,0 +1,15 @@
+[Unit]
+Description=ponger service
+After=network.target
+
+[Service]
+ExecStart=/opt/ponger/ponger
+WorkingDirectory=/opt/ponger/
+TimeoutStopSec=5
+LimitNOFILE=4096
+User=root
+Group=root
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
