@@ -40,7 +40,7 @@ func (h *Hosts) Dump() (out string) {
 
 	for _, key := range keys {
 		out += fmt.Sprintf(
-			"%-"+strconv.Itoa(maxLen)+"s | %-15s | watching: %4s | online: %t\n",
+			"q: %-"+strconv.Itoa(maxLen)+"s | ip: %-15s | watching: %8s | online: %t\n",
 			key, h.inv[key].IP, time.Since(h.inv[key].Added).Truncate(time.Second), h.inv[key].Online,
 		)
 	}
@@ -155,13 +155,13 @@ func (h *Host) Watch() {
 		h.Online = true
 		h.LastOnline = time.Now()
 		if conf.NotifyOnStart {
-			h.Sendf("host %s is online :ok_hand:", h.IP.String())
+			h.Sendf("*%s* online :white_check_mark:", h.IP.String())
 		}
 	} else {
 		h.Online = false
 		h.LastOffline = time.Now()
 		if conf.NotifyOnStart {
-			h.Sendf("host %s is offline :radioactive_sign:", h.IP.String())
+			h.Sendf("*%s* offline :warn1:", h.IP.String())
 		}
 	}
 
@@ -203,7 +203,7 @@ func (h *Host) Watch() {
 					// Add up the downtime.
 					h.TotalDowntime += time.Since(h.LastOffline)
 
-					h.Sendf("host %s now online (downtime counter: `%s`)", h.IP, h.TotalDowntime.Truncate(time.Minute))
+					h.Sendf("*%s* now online (downtime: `%s`) :white_check_mark:", h.IP, h.TotalDowntime.Truncate(time.Minute))
 				}
 
 				h.LastOnline = time.Now()
@@ -223,7 +223,7 @@ func (h *Host) Watch() {
 				// Host was previously online, and is now offline.
 				h.Online = false
 
-				h.Sendf("host %s now offline", h.IP)
+				h.Sendf("*%s* now offline :warn1:", h.IP)
 			} else {
 				// Host is still offline.
 				h.TotalDowntime += time.Since(h.LastOffline)
