@@ -50,7 +50,7 @@ func newSlackRTM(messageChan chan string) error {
 					ev.Info.User.Name,
 				)
 				botID = ev.Info.User.ID
-				// rtm.SendMessage(rtm.NewOutgoingMessage("_started up_", channelID))
+				rtm.SendMessage(rtm.NewOutgoingMessage("_bot has been restarted_", channelID))
 			case *slack.MessageEvent:
 				if ev.User == botID || ev.Text == "" {
 					continue
