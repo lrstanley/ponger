@@ -203,7 +203,7 @@ func (h *Host) Watch() {
 				case <-h.closer:
 					hostGroup.Remove(h)
 					return
-				case <-time.After(10 * time.Second):
+				case <-time.After(5 * time.Second):
 				}
 
 				logger.Printf("pinging %s [%d/3]", h.IP.String(), i+1)
