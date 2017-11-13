@@ -99,10 +99,7 @@ func newSlackRTM(messageChan chan string) error {
 					hostGroup.Add(netIP.String(), host)
 
 					if conf.ReactionOnStart {
-						err = rtm.AddReaction("white_check_mark", slack.NewRefToMessage(ev.Channel, ev.Timestamp))
-						if err != nil && !strings.Contains(err.Error(), "already_reacted") {
-							logger.Printf("error adding reaction: %s", err)
-						}
+						host.AddReaction("white_check_mark")
 					}
 				}
 			case *slack.RTMError:

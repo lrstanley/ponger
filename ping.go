@@ -103,15 +103,30 @@ func (h *Hosts) Remove(host *Host) {
 }
 
 type Host struct {
-	closer chan struct{}
-	Origin *slack.MessageEvent
-	IP     net.IP
-	Added  time.Time
+	closer            chan struct{}
+	Origin            *slack.MessageEvent
+	IP                net.IP
+	Added             time.Time
+	HasSentFirstReply bool
 
 	Online        bool
 	LastOnline    time.Time
 	LastOffline   time.Time
 	TotalDowntime time.Duration
+}
+
+func (h *Host) AddReaction(action string) {
+	api := newSlackClient()
+	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
+		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel, err)
+	}
+}
+
+func (h *Host) RemoveReaction(action string) {
+	api := newSlackClient()
+	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
+		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel, err)
+	}
 }
 
 func (h *Host) Stop() {
@@ -127,14 +142,10 @@ func (h *Host) Send(text string) {
 	}
 
 	api := newSlackClient()
-	// _, _, _, err = api.SendMessage(
-	// 	outChannel,
-	// 	slack.MsgOptionAsUser(true),
-	// 	slack.MsgOptionText(text, false),
-	// )
+
 	params := slack.NewPostMessageParameters()
 	params.AsUser = true
-	params.Text = text
+
 	// Don't use this if you don't want threads.
 	params.ThreadTimestamp = h.Origin.Timestamp
 
@@ -146,6 +157,15 @@ func (h *Host) Send(text string) {
 }
 
 func (h *Host) Sendf(format string, v ...interface{}) {
+	if !h.HasSentFirstReply && conf.ReactionOnStart {
+		// Remove the "check" reaction we added at the start.
+		h.RemoveReaction("white_check_mark")
+	}
+
+	if !h.HasSentFirstReply {
+		h.HasSentFirstReply = true
+	}
+
 	h.Send(fmt.Sprintf(format, v...))
 }
 
