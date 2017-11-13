@@ -216,7 +216,7 @@ func cmdHandler(msg *slack.MessageEvent, cmd, args string) error {
 			err := hostGroup.Add(query, host)
 			if !conf.NotifyOnStart {
 				if err != nil {
-					reply += fmt.Sprintf("error adding `%s`: `%s`\n", query, err)
+					reply += fmt.Sprintf("error adding `%s`: %s\n", query, err)
 					continue
 				}
 
