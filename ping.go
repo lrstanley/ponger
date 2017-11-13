@@ -85,7 +85,7 @@ func (h *Hosts) Add(id string, host *Host) error {
 	defer h.Unlock()
 
 	if _, ok := h.inv[id]; ok {
-		return errors.New("host already exists")
+		return errors.New("host already tracked")
 	}
 
 	logger.Printf("added: %s", host.IP)
