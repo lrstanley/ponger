@@ -223,7 +223,7 @@ func (h *Host) Watch() {
 					// Add up the downtime.
 					h.TotalDowntime += time.Since(h.LastOffline)
 
-					h.Sendf("*%s* now online (downtime: `%s`) :white_check_mark:", h.IP, h.TotalDowntime.Truncate(time.Minute))
+					h.Sendf("*%s* now online (downtime: `%s`) :white_check_mark:", h.IP, h.TotalDowntime.Truncate(time.Second))
 				}
 
 				h.LastOnline = time.Now()
