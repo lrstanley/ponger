@@ -75,14 +75,26 @@ func (h *Hosts) Exists(id string) (ok bool) {
 	h.Lock()
 	defer h.Unlock()
 
-	_, ok = h.inv[id]
+	id = strings.ToLower(id)
 
-	return ok
+	for key := range h.inv {
+		if key == id {
+			return true
+		}
+
+		if h.inv[key].IP.String() == id {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (h *Hosts) Add(id string, host *Host) error {
 	h.Lock()
 	defer h.Unlock()
+
+	id = strings.ToLower(id)
 
 	if _, ok := h.inv[id]; ok {
 		return errors.New("host already tracked")
