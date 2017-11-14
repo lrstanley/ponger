@@ -20,6 +20,7 @@ func newSlackClient() *slack.Client {
 }
 
 var reIP = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`)
+var reHostname = regexp.MustCompile(`(?m)(?:^| )((?:(?:[a-zA-Z]{1})|(?:[a-zA-Z]{1}[a-zA-Z]{1})|(?:[a-zA-Z]{1}[0-9]{1})|(?:[0-9]{1}[a-zA-Z]{1})|(?:[a-zA-Z0-9][a-zA-Z0-9-_]{1,61}[a-zA-Z0-9]))\.(?:[a-zA-Z]{2,6}|[a-zA-Z0-9-]{2,30}\.[a-zA-Z]{2,3}))(?: |$)`)
 var reCommand = regexp.MustCompile(`^!([[:word:]]+)(?: (.*)?)?`)
 var reUnlink = regexp.MustCompile(`<http[^\|]+\|([^>]+)>`)
 
@@ -52,56 +53,7 @@ func newSlackRTM(messageChan chan string) error {
 				botID = ev.Info.User.ID
 				rtm.SendMessage(rtm.NewOutgoingMessage("_bot has been restarted_", channelID))
 			case *slack.MessageEvent:
-				if ev.User == botID || ev.Text == "" {
-					continue
-				}
-
-				logger.Printf("<%s:%s> %s", ev.Channel, ev.User, ev.Text)
-
-				cmd := reCommand.FindStringSubmatch(reUnlink.ReplaceAllString(ev.Text, "$1"))
-				if len(cmd) == 3 && cmd[1] != "" {
-					err = cmdHandler(ev, cmd[1], cmd[2])
-					if err != nil {
-						logger.Printf("unable to execute command handler for %q %q: %s", cmd[1], cmd[2], err)
-					}
-					continue
-				}
-
-				// Check if they want automagical checks.
-				set := GetUserSettings(ev.User)
-				if set.ChecksDisabled {
-					continue
-				}
-
-				ips := reIP.FindAllString(ev.Text, -1)
-				if len(ips) == 0 {
-					continue
-				}
-
-				// We should loop through each IP we find and track it.
-				for _, ip := range ips {
-					netIP := net.ParseIP(ip)
-
-					// Make sure it's a valid ip, and also make sure that
-					// we're not already tracking the ip.
-					if netIP == nil || hostGroup.Exists(netIP.String()) {
-						continue
-					}
-
-					host := &Host{
-						closer: make(chan struct{}, 1),
-						Origin: ev,
-						IP:     netIP,
-						Added:  time.Now(),
-					}
-
-					go host.Watch()
-					hostGroup.Add(netIP.String(), host)
-
-					if conf.ReactionOnStart {
-						host.AddReaction("white_check_mark")
-					}
-				}
+				msgHandler(ev, botID)
 			case *slack.RTMError:
 				return ev
 			case *slack.InvalidAuthEvent:
@@ -118,6 +70,89 @@ func newSlackRTM(messageChan chan string) error {
 	}
 
 	return nil
+}
+
+func msgHandler(msg *slack.MessageEvent, botID string) {
+	if msg.User == botID || msg.Text == "" {
+		return
+	}
+
+	logger.Printf("<%s:%s> %s", msg.Channel, msg.User, msg.Text)
+
+	msg.Text = reUnlink.ReplaceAllString(msg.Text, "$1")
+
+	cmd := reCommand.FindStringSubmatch(msg.Text)
+	if len(cmd) == 3 && cmd[1] != "" {
+		err := cmdHandler(msg, cmd[1], cmd[2])
+		if err != nil {
+			logger.Printf("unable to execute command handler for %q %q: %s", cmd[1], cmd[2], err)
+		}
+		return
+	}
+
+	// Check if they want automagical checks.
+	set := GetUserSettings(msg.User)
+	if set.ChecksDisabled {
+		return
+	}
+
+	ips := reIP.FindAllString(msg.Text, -1)
+	if len(ips) == 0 {
+		// Check for hostnames.
+		hosts := reHostname.FindAllStringSubmatch(msg.Text, -1)
+
+		if hosts == nil {
+			return
+		}
+
+		for i := 0; i < len(hosts); i++ {
+			addrs, err := net.LookupIP(hosts[i][1])
+			if err != nil || hostGroup.Exists(addrs[0].String()) {
+				continue
+			}
+
+			host := &Host{
+				closer: make(chan struct{}, 1),
+				Origin: msg,
+				IP:     addrs[0],
+				Added:  time.Now(),
+			}
+
+			go host.Watch()
+			hostGroup.Add(hosts[i][1], host)
+
+			if conf.ReactionOnStart {
+				host.AddReaction("white_check_mark")
+			}
+		}
+
+		return
+	}
+
+	// We should loop through each IP we find and track it.
+	for _, ip := range ips {
+		netIP := net.ParseIP(ip)
+
+		// Make sure it's a valid ip, and also make sure that
+		// we're not already tracking the ip.
+		if netIP == nil || hostGroup.Exists(netIP.String()) {
+			continue
+		}
+
+		host := &Host{
+			closer: make(chan struct{}, 1),
+			Origin: msg,
+			IP:     netIP,
+			Added:  time.Now(),
+		}
+
+		go host.Watch()
+		hostGroup.Add(netIP.String(), host)
+
+		if conf.ReactionOnStart {
+			host.AddReaction("white_check_mark")
+		}
+	}
 }
 
 func cmdHandler(msg *slack.MessageEvent, cmd, args string) error {
@@ -210,7 +245,7 @@ func cmdHandler(msg *slack.MessageEvent, cmd, args string) error {
 			}
 
 			go host.Watch()
-			err := hostGroup.Add(query, host)
+			err = hostGroup.Add(query, host)
 			if !conf.NotifyOnStart {
 				if err != nil {
 					reply += fmt.Sprintf("error adding `%s`: %s\n", query, err)
