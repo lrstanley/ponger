@@ -56,6 +56,7 @@ func (h *Hosts) Clear(query, user string) {
 		if query != "" {
 			if glob.Glob(strings.ToLower(query), strings.ToLower(key)) {
 				close(h.inv[key].closer)
+				delete(h.inv, key)
 			}
 			return
 		}
@@ -63,6 +64,7 @@ func (h *Hosts) Clear(query, user string) {
 		if user != "" {
 			if h.inv[key].Origin.User == user {
 				close(h.inv[key].closer)
+				delete(h.inv, key)
 			}
 			continue
 		}
