@@ -58,6 +58,10 @@ func (h *Hosts) Clear(query, user string) {
 				close(h.inv[key].closer)
 				delete(h.inv, key)
 			}
+			if glob.Glob(query, h.inv[key].IP.String()) {
+				close(h.inv[key].closer)
+				delete(h.inv, key)
+			}
 			return
 		}
 
@@ -108,12 +112,21 @@ func (h *Hosts) Add(id string, host *Host) error {
 	return nil
 }
 
-func (h *Hosts) Remove(host *Host) {
+func (h *Hosts) Remove(host *Host, reason string) {
 	h.Lock()
 	defer h.Unlock()
 
-	logger.Printf("removing: %s", host.IP)
-	delete(h.inv, host.IP.String())
+	logger.Printf("removing: %s: %s", host.IP, reason)
+	for key := range h.inv {
+		if h.inv[key].IP.Equal(host.IP) {
+			if !h.inv[key].HasSentFirstReply {
+				h.inv[key].Send(reason)
+				h.inv[key].RemoveReaction("white_check_mark")
+			}
+
+			delete(h.inv, key)
+		}
+	}
 }
 
 type Host struct {
@@ -141,11 +154,6 @@ func (h *Host) RemoveReaction(action string) {
 	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
 		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel, err)
 	}
-}
-
-func (h *Host) Stop() {
-	close(h.closer)
-	hostGroup.Remove(h)
 }
 
 func (h *Host) Send(text string) {
@@ -202,12 +210,11 @@ func (h *Host) Watch() {
 	for {
 		select {
 		case <-h.closer:
-			hostGroup.Remove(h)
+			hostGroup.Remove(h, fmt.Sprintf("checks for *%s* have been cleared upon request", h.IP))
 			return
 		case <-time.After(10 * time.Second):
 			if time.Since(h.Added) > time.Duration(conf.ForcedTimeout)*time.Second {
-				logger.Printf("removing %s: total time exceeds %d seconds", h.IP, conf.ForcedTimeout)
-				hostGroup.Remove(h)
+				hostGroup.Remove(h, fmt.Sprintf("stopped monitoring *%s*: checks exceeded `%s`", h.IP, time.Duration(conf.ForcedTimeout)*time.Second))
 				return
 			}
 
@@ -215,9 +222,9 @@ func (h *Host) Watch() {
 			for i := 0; i < 3; i++ {
 				select {
 				case <-h.closer:
-					hostGroup.Remove(h)
+					hostGroup.Remove(h, fmt.Sprintf("checks for *%s* have been cleared upon request", h.IP))
 					return
-				case <-time.After(5 * time.Second):
+				case <-time.After(2 * time.Second):
 				}
 
 				logger.Printf("pinging %s [%d/3]", h.IP.String(), i+1)
@@ -244,8 +251,7 @@ func (h *Host) Watch() {
 
 				if (h.LastOffline.IsZero() && time.Since(h.Added) > time.Duration(conf.RemovalTimeout)*time.Second) ||
 					(!h.LastOffline.IsZero() && time.Since(h.LastOffline) > time.Duration(conf.RemovalTimeout)*time.Second) {
-					logger.Printf("removing %s: time since last down > %s", h.IP, time.Duration(conf.RemovalTimeout)*time.Second)
-					hostGroup.Remove(h)
+					hostGroup.Remove(h, fmt.Sprintf("stopped monitoring *%s*: time since last offline `>%s`", h.IP, time.Duration(conf.RemovalTimeout)*time.Second))
 					return
 				}
 				continue
