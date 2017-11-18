@@ -184,7 +184,11 @@ func (h *Host) Sendf(format string, v ...interface{}) {
 		h.RemoveReaction("white_check_mark")
 	}
 
-	if !h.HasSentFirstReply {
+	// If we've not sent the first reply and if we're not notifying on start.
+	// If we are notifying on start, then make sure this is the 'first' message
+	// by checking the LasstOnline/LastOffline which are only updated after
+	// the first message is sent.
+	if !h.HasSentFirstReply && (!conf.NotifyOnStart || conf.NotifyOnStart && h.LastOnline.IsZero() && h.LastOffline.IsZero()) {
 		h.HasSentFirstReply = true
 	}
 
@@ -194,17 +198,17 @@ func (h *Host) Sendf(format string, v ...interface{}) {
 func (h *Host) Watch() {
 	first := ping.Pinger(h.IP.String(), 2)
 	if first == nil {
-		h.Online = true
-		h.LastOnline = time.Now()
 		if conf.NotifyOnStart {
 			h.Sendf("*%s* online :white_check_mark:", h.IP.String())
 		}
+		h.Online = true
+		h.LastOnline = time.Now()
 	} else {
-		h.Online = false
-		h.LastOffline = time.Now()
 		if conf.NotifyOnStart {
 			h.Sendf("*%s* offline :warn1:", h.IP.String())
 		}
+		h.Online = false
+		h.LastOffline = time.Now()
 	}
 
 	for {
