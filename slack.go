@@ -77,7 +77,14 @@ func msgHandler(msg *slack.MessageEvent, botID string) {
 		return
 	}
 
-	logger.Printf("<%s:%s> %s", msg.Channel, msg.User, msg.Text)
+	channelName := slackIDToChannel(msg.Channel)
+
+	logger.Printf("<%s[%s]:%s> %s", msg.Channel, channelName, msg.User, msg.Text)
+
+	if strings.ToLower(channelName) != strings.ToLower(conf.IncomingChannel) && channelName != "" {
+		logger.Printf("skipping: %q not input channel or PM", channelName)
+		return
+	}
 
 	msg.Text = reUnlink.ReplaceAllString(msg.Text, "$1")
 
@@ -116,6 +123,7 @@ func msgHandler(msg *slack.MessageEvent, botID string) {
 				Origin: msg,
 				IP:     addrs[0],
 				Added:  time.Now(),
+				Source: channelName,
 			}
 
 			go host.Watch()
@@ -144,6 +152,7 @@ func msgHandler(msg *slack.MessageEvent, botID string) {
 			Origin: msg,
 			IP:     netIP,
 			Added:  time.Now(),
+			Source: channelName,
 		}
 
 		go host.Watch()
@@ -242,6 +251,7 @@ func cmdHandler(msg *slack.MessageEvent, cmd, args string) error {
 				Origin: msg,
 				IP:     ip,
 				Added:  time.Now(),
+				Source: "via !check",
 			}
 
 			go host.Watch()
@@ -334,4 +344,28 @@ func slackChannelID(channelName string) (string, error) {
 	}
 
 	return "", errors.New("channel not found")
+}
+
+func slackIDToChannel(cid string) string {
+	channelCache.Lock()
+	defer channelCache.Unlock()
+
+	id, ok := channelCache.cache[cid]
+	if ok {
+		return id
+	}
+
+	api := newSlackClient()
+	if ch, err := api.GetChannelInfo(cid); err == nil {
+		channelCache.cache[cid] = "#" + ch.Name
+		return "#" + ch.Name
+	}
+
+	if ch, err := api.GetGroupInfo(cid); err == nil {
+		channelCache.cache[cid] = "#" + ch.Name
+		return "#" + ch.Name
+	}
+
+	channelCache.cache[cid] = ""
+	return ""
 }

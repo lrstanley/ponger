@@ -132,6 +132,7 @@ func (h *Hosts) Remove(host *Host, reason string) {
 type Host struct {
 	closer            chan struct{}
 	Origin            *slack.MessageEvent
+	Source            string
 	IP                net.IP
 	Added             time.Time
 	HasSentFirstReply bool
@@ -157,11 +158,11 @@ func (h *Host) RemoveReaction(action string) {
 }
 
 func (h *Host) Send(text string) {
-	outChannel, err := lookupChannel(conf.OutgoingChannel)
-	if err != nil {
-		logger.Printf("error checking %s: %s", h.IP, err)
-		return
-	}
+	// outChannel, err := lookupChannel(conf.OutgoingChannel)
+	// if err != nil {
+	// 	logger.Printf("error checking %s: %s", h.IP, err)
+	// 	return
+	// }
 
 	api := newSlackClient()
 
@@ -171,7 +172,7 @@ func (h *Host) Send(text string) {
 	// Don't use this if you don't want threads.
 	params.ThreadTimestamp = h.Origin.Timestamp
 
-	_, _, err = api.PostMessage(outChannel, text, params)
+	_, _, err := api.PostMessage(h.Origin.Channel, text, params)
 
 	if err != nil {
 		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.Msg.Username, err)
