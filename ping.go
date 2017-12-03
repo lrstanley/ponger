@@ -40,8 +40,9 @@ func (h *Hosts) Dump() (out string) {
 
 	for _, key := range keys {
 		out += fmt.Sprintf(
-			"q: %-"+strconv.Itoa(maxLen)+"s | ip: %-15s | watching: %8s | online: %t\n",
+			"q: %-"+strconv.Itoa(maxLen)+"s | ip: %-15s | watching: %8s | online: %-5t | src: %s\n",
 			key, h.inv[key].IP, time.Since(h.inv[key].Added).Truncate(time.Second), h.inv[key].Online,
+			h.inv[key].Origin.Buffer,
 		)
 	}
 
@@ -66,7 +67,7 @@ func (h *Hosts) Clear(query, user string) {
 		}
 
 		if user != "" {
-			if h.inv[key].Origin.User == user {
+			if h.inv[key].Origin.User() == user {
 				close(h.inv[key].closer)
 				delete(h.inv, key)
 			}
@@ -131,8 +132,7 @@ func (h *Hosts) Remove(host *Host, reason string) {
 
 type Host struct {
 	closer            chan struct{}
-	Origin            *slack.MessageEvent
-	Source            string
+	Origin            *Event
 	IP                net.IP
 	Added             time.Time
 	HasSentFirstReply bool
@@ -145,37 +145,30 @@ type Host struct {
 
 func (h *Host) AddReaction(action string) {
 	api := newSlackClient()
-	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
-		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel, err)
+	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel(), h.Origin.Timestamp())); err != nil {
+		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel(), err)
 	}
 }
 
 func (h *Host) RemoveReaction(action string) {
 	api := newSlackClient()
-	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
-		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel, err)
+	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel(), h.Origin.Timestamp())); err != nil {
+		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel(), err)
 	}
 }
 
 func (h *Host) Send(text string) {
-	// outChannel, err := lookupChannel(conf.OutgoingChannel)
-	// if err != nil {
-	// 	logger.Printf("error checking %s: %s", h.IP, err)
-	// 	return
-	// }
-
 	api := newSlackClient()
 
 	params := slack.NewPostMessageParameters()
 	params.AsUser = true
 
 	// Don't use this if you don't want threads.
-	params.ThreadTimestamp = h.Origin.Timestamp
+	params.ThreadTimestamp = h.Origin.Timestamp()
 
-	_, _, err := api.PostMessage(h.Origin.Channel, text, params)
-
+	_, _, err := api.PostMessage(h.Origin.Channel(), text, params)
 	if err != nil {
-		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.Msg.Username, err)
+		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.User(), err)
 	}
 }
 
