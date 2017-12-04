@@ -21,11 +21,11 @@ var flags Flags
 type Config struct {
 	Token           string `toml:"token"`
 	IncomingChannel string `toml:"incoming_channel"`
-	OutgoingChannel string `toml:"outgoing_channel"`
 	RemovalTimeout  int    `toml:"removal_timeout_secs"`
 	ForcedTimeout   int    `toml:"forced_timeout_secs"`
 	NotifyOnStart   bool   `toml:"notify_on_start"`
 	ReactionOnStart bool   `toml:"reaction_on_start"`
+	ReactionTrigger string `toml:"reaction_trigger"`
 }
 
 var conf Config

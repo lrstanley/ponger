@@ -10,10 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nlopes/slack"
 	"github.com/paulstuart/ping"
 	glob "github.com/ryanuber/go-glob"
-
-	"github.com/nlopes/slack"
 )
 
 var hostGroup = Hosts{inv: make(map[string]*Host)}
@@ -42,39 +41,36 @@ func (h *Hosts) Dump() (out string) {
 		out += fmt.Sprintf(
 			"q: %-"+strconv.Itoa(maxLen)+"s | ip: %-15s | watching: %8s | online: %-5t | src: %s\n",
 			key, h.inv[key].IP, time.Since(h.inv[key].Added).Truncate(time.Second), h.inv[key].Online,
-			h.inv[key].Origin.Buffer,
+			h.inv[key].Buffer,
 		)
 	}
 
 	return out
 }
 
-func (h *Hosts) Clear(query, user string) {
+func (h *Hosts) GlobRemove(query, user string) {
 	h.Lock()
 	defer h.Unlock()
 
 	for key := range h.inv {
 		if query != "" {
 			if glob.Glob(strings.ToLower(query), strings.ToLower(key)) {
-				close(h.inv[key].closer)
-				delete(h.inv, key)
+				h.Remove(key, "checks cancelled")
 			}
 			if glob.Glob(query, h.inv[key].IP.String()) {
-				close(h.inv[key].closer)
-				delete(h.inv, key)
+				h.Remove(key, "checks cancelled")
 			}
 			return
 		}
 
 		if user != "" {
-			if h.inv[key].Origin.User() == user {
-				close(h.inv[key].closer)
-				delete(h.inv, key)
+			if h.inv[key].Origin.User == user {
+				h.Remove(key, "checks cancelled")
 			}
 			continue
 		}
 
-		close(h.inv[key].closer)
+		h.Remove(key, "check cancelled")
 	}
 }
 
@@ -103,6 +99,8 @@ func (h *Hosts) Add(id string, host *Host) error {
 
 	id = strings.ToLower(id)
 
+	host.ID = id
+
 	if _, ok := h.inv[id]; ok {
 		return errors.New("host already tracked")
 	}
@@ -113,26 +111,36 @@ func (h *Hosts) Add(id string, host *Host) error {
 	return nil
 }
 
-func (h *Hosts) Remove(host *Host, reason string) {
-	h.Lock()
-	defer h.Unlock()
-
-	logger.Printf("removing: %s: %s", host.IP, reason)
-	for key := range h.inv {
-		if h.inv[key].IP.Equal(host.IP) {
-			if !h.inv[key].HasSentFirstReply {
-				h.inv[key].Send(reason)
-				h.inv[key].RemoveReaction("white_check_mark")
-			}
-
-			delete(h.inv, key)
+func (h *Hosts) Remove(id, reason string) bool {
+	if _, ok := h.inv[id]; ok {
+		if !h.inv[id].HasSentFirstReply {
+			h.inv[id].Send(reason)
 		}
+
+		h.inv[id].RemoveReaction("white_check_mark")
+
+		close(h.inv[id].closer)
+		delete(h.inv, id)
+		return true
 	}
+
+	return false
+}
+
+func (h *Hosts) LRemove(id, reason string) bool {
+	h.Lock()
+	ok := h.Remove(id, reason)
+	h.Unlock()
+
+	return ok
 }
 
 type Host struct {
+	ID                string
 	closer            chan struct{}
-	Origin            *Event
+	Origin            *slack.Message
+	OriginReaction    string
+	Buffer            string
 	IP                net.IP
 	Added             time.Time
 	HasSentFirstReply bool
@@ -145,15 +153,15 @@ type Host struct {
 
 func (h *Host) AddReaction(action string) {
 	api := newSlackClient()
-	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel(), h.Origin.Timestamp())); err != nil {
-		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel(), err)
+	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
+		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel, err)
 	}
 }
 
 func (h *Host) RemoveReaction(action string) {
 	api := newSlackClient()
-	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel(), h.Origin.Timestamp())); err != nil {
-		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel(), err)
+	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
+		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel, err)
 	}
 }
 
@@ -164,11 +172,12 @@ func (h *Host) Send(text string) {
 	params.AsUser = true
 
 	// Don't use this if you don't want threads.
-	params.ThreadTimestamp = h.Origin.Timestamp()
+	params.ThreadTimestamp = h.Origin.Timestamp
 
-	_, _, err := api.PostMessage(h.Origin.Channel(), text, params)
+	_, _, err := api.PostMessage(h.Origin.Channel, text, params)
+
 	if err != nil {
-		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.User(), err)
+		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.Username, err)
 	}
 }
 
@@ -190,6 +199,8 @@ func (h *Host) Sendf(format string, v ...interface{}) {
 }
 
 func (h *Host) Watch() {
+	defer hostGroup.LRemove(h.ID, "")
+
 	first := ping.Pinger(h.IP.String(), 2)
 	if first == nil {
 		if conf.NotifyOnStart {
@@ -208,11 +219,10 @@ func (h *Host) Watch() {
 	for {
 		select {
 		case <-h.closer:
-			hostGroup.Remove(h, fmt.Sprintf("checks for *%s* have been cleared upon request", h.IP))
 			return
 		case <-time.After(10 * time.Second):
 			if time.Since(h.Added) > time.Duration(conf.ForcedTimeout)*time.Second {
-				hostGroup.Remove(h, fmt.Sprintf("stopped monitoring *%s*: checks exceeded `%s`", h.IP, time.Duration(conf.ForcedTimeout)*time.Second))
+				hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring *%s*: checks exceeded `%s`", h.IP, time.Duration(conf.ForcedTimeout)*time.Second))
 				return
 			}
 
@@ -220,7 +230,6 @@ func (h *Host) Watch() {
 			for i := 0; i < 3; i++ {
 				select {
 				case <-h.closer:
-					hostGroup.Remove(h, fmt.Sprintf("checks for *%s* have been cleared upon request", h.IP))
 					return
 				case <-time.After(2 * time.Second):
 				}
@@ -249,7 +258,7 @@ func (h *Host) Watch() {
 
 				if (h.LastOffline.IsZero() && time.Since(h.Added) > time.Duration(conf.RemovalTimeout)*time.Second) ||
 					(!h.LastOffline.IsZero() && time.Since(h.LastOffline) > time.Duration(conf.RemovalTimeout)*time.Second) {
-					hostGroup.Remove(h, fmt.Sprintf("stopped monitoring *%s*: time since last offline `>%s`", h.IP, time.Duration(conf.RemovalTimeout)*time.Second))
+					hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring *%s*: time since last offline `>%s`", h.IP, time.Duration(conf.RemovalTimeout)*time.Second))
 					return
 				}
 				continue
