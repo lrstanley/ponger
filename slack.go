@@ -309,7 +309,9 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 |!active| lists all active host/ip checks
 |!clearall| clears all checks
 |!clear [query]| clear checks matching *query*, or all of *your* checks
-|!help| this help info :doge:`, "|", "`", -1)
+|!help| this help info
+|message-reactions| start monitoring by adding the :%s: reaction to a message with an ip/host`, "|", "`", -1)
+		reply = fmt.Sprintf(reply, conf.ReactionTrigger)
 	default:
 		reply = fmt.Sprintf("unknown command `%s`. use `!help`?", cmd)
 	}
