@@ -266,6 +266,10 @@ func (h *Host) Watch() {
 					hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring *%s*: time since last offline `>%s`", h.IP, time.Duration(conf.RemovalTimeout)*time.Second))
 					return
 				}
+
+				// Since it's healthy, wait a bit before trying to check if it's offline.
+				// This should help prevent a bit of spam if the service is flapping.
+				time.Sleep(25 * time.Second)
 				continue
 			}
 
