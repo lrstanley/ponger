@@ -220,13 +220,14 @@ func (h *Host) Watch() {
 		select {
 		case <-h.closer:
 			return
-		case <-time.After(10 * time.Second):
+		case <-time.After(5 * time.Second):
 			if time.Since(h.Added) > time.Duration(conf.ForcedTimeout)*time.Second {
 				hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring *%s*: checks exceeded `%s`", h.IP, time.Duration(conf.ForcedTimeout)*time.Second))
 				return
 			}
 
 			var check error
+			var bad int
 			for i := 0; i < 3; i++ {
 				select {
 				case <-h.closer:
@@ -237,8 +238,12 @@ func (h *Host) Watch() {
 				logger.Printf("pinging %s [%d/3]", h.IP.String(), i+1)
 				check = ping.Pinger(h.IP.String(), 2)
 				if check != nil {
-					break
+					bad++
 				}
+			}
+
+			if bad != 3 {
+				check = nil
 			}
 
 			if check == nil {
