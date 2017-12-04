@@ -117,8 +117,8 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 		return
 	}
 
-	if strings.ToLower(channelName) != strings.ToLower(conf.IncomingChannel) && channelName != "" {
-		logger.Printf("skipping: %q not input channel or PM", channelName)
+	if reaction == "" && strings.ToLower(channelName) != strings.ToLower(conf.IncomingChannel) && channelName != "" {
+		logger.Printf("skipping: %q not input channel or PM, and not reaction", channelName)
 		return
 	}
 
