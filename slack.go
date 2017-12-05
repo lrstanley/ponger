@@ -111,7 +111,7 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 			return
 		}
 
-		if hostGroup.Exists(msg.EventTimestamp) {
+		if ok, _ := hostGroup.Exists(msg.EventTimestamp); ok {
 			if remove {
 				hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, false)
 				return
@@ -174,7 +174,14 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 
 		for i := 0; i < len(hosts); i++ {
 			addrs, err := net.LookupIP(hosts[i][1])
-			if err != nil || hostGroup.Exists(addrs[0].String()) {
+			if err != nil {
+				continue
+			}
+
+			if ok, buffer := hostGroup.Exists(addrs[0].String()); ok {
+				if reaction != "" {
+					slackReply(msg, fmt.Sprintf("%s already monitored, ignoring (%s)", addrs[0].String(), buffer))
+				}
 				continue
 			}
 
@@ -209,7 +216,13 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 
 		// Make sure it's a valid ip, and also make sure that
 		// we're not already tracking the ip.
-		if netIP == nil || hostGroup.Exists(netIP.String()) {
+		if netIP == nil {
+			continue
+		}
+		if ok, buffer := hostGroup.Exists(netIP.String()); ok {
+			if reaction != "" {
+				slackReply(msg, fmt.Sprintf("%s already monitored, ignoring (%s)", netIP.String(), buffer))
+			}
 			continue
 		}
 
@@ -318,8 +331,8 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 				ip = addrs[0]
 			}
 
-			if hostGroup.Exists(query) {
-				reply = "That host is already being monitored! (see `!active` for more info)"
+			if ok, buffer := hostGroup.Exists(query); ok {
+				reply = fmt.Sprintf("That host is already being monitored! (`%s`)", buffer)
 				break
 			}
 

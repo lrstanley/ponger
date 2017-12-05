@@ -77,7 +77,7 @@ func (h *Hosts) GlobRemove(query, user string) {
 	}
 }
 
-func (h *Hosts) Exists(id string) (ok bool) {
+func (h *Hosts) Exists(id string) (ok bool, buffer string) {
 	h.Lock()
 	defer h.Unlock()
 
@@ -85,19 +85,19 @@ func (h *Hosts) Exists(id string) (ok bool) {
 
 	for key := range h.inv {
 		if key == id {
-			return true
+			return true, h.inv[key].Buffer
 		}
 
 		if h.inv[key].IP.String() == id {
-			return true
+			return true, h.inv[key].Buffer
 		}
 
 		if h.inv[key].Origin.EventTimestamp == id {
-			return true
+			return true, h.inv[key].Buffer
 		}
 	}
 
-	return false
+	return false, ""
 }
 
 func (h *Hosts) Add(id string, host *Host) error {
@@ -155,6 +155,7 @@ func (h *Hosts) EditHighlight(ts, user string, add bool) {
 
 		if add {
 			if user == h.inv[key].Origin.User {
+				slackReply(h.inv[key].Origin, fmt.Sprintf("%s already monitored, ignoring (%s)", h.inv[key].IP.String(), h.inv[key].Buffer))
 				continue
 			}
 
@@ -239,13 +240,13 @@ func (h *Host) Watch() {
 	first := ping.Pinger(h.IP.String(), 2)
 	if first == nil {
 		if conf.NotifyOnStart {
-			h.Sendf("*%s* online :white_check_mark:", h.IP.String())
+			h.Sendf("%s online :white_check_mark:", h.IP.String())
 		}
 		h.Online = true
 		h.LastOnline = time.Now()
 	} else {
 		if conf.NotifyOnStart {
-			h.Sendf("*%s* offline :warn1:", h.IP.String())
+			h.Sendf("%s offline :warn1:", h.IP.String())
 		}
 		h.Online = false
 		h.LastOffline = time.Now()
@@ -257,7 +258,7 @@ func (h *Host) Watch() {
 			return
 		case <-time.After(5 * time.Second):
 			if time.Since(h.Added) > time.Duration(conf.ForcedTimeout)*time.Second {
-				hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring *%s*: checks exceeded `%s`", h.IP, time.Duration(conf.ForcedTimeout)*time.Second))
+				hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring %s: checks exceeded `%s`", h.IP, time.Duration(conf.ForcedTimeout)*time.Second))
 				return
 			}
 
@@ -291,14 +292,14 @@ func (h *Host) Watch() {
 					// Add up the downtime.
 					h.TotalDowntime += time.Since(h.LastOffline)
 
-					h.Sendf("*%s* now online (downtime: `%s`) :white_check_mark:", h.IP, h.TotalDowntime.Truncate(time.Second))
+					h.Sendf("%s now online (downtime: `%s`) :white_check_mark:", h.IP, h.TotalDowntime.Truncate(time.Second))
 				}
 
 				h.LastOnline = time.Now()
 
 				if (h.LastOffline.IsZero() && time.Since(h.Added) > time.Duration(conf.RemovalTimeout)*time.Second) ||
 					(!h.LastOffline.IsZero() && time.Since(h.LastOffline) > time.Duration(conf.RemovalTimeout)*time.Second) {
-					hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring *%s*: time since last offline `>%s`", h.IP, time.Duration(conf.RemovalTimeout)*time.Second))
+					hostGroup.LRemove(h.ID, fmt.Sprintf("stopped monitoring %s: time since last offline `>%s`", h.IP, time.Duration(conf.RemovalTimeout)*time.Second))
 					return
 				}
 
@@ -314,7 +315,7 @@ func (h *Host) Watch() {
 				// Host was previously online, and is now offline.
 				h.Online = false
 
-				h.Sendf("*%s* now offline :warn1:", h.IP)
+				h.Sendf("%s now offline :warn1:", h.IP)
 			} else {
 				// Host is still offline.
 				h.TotalDowntime += time.Since(h.LastOffline)

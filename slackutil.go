@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/nlopes/slack"
+	"github.com/y0ssar1an/q"
 )
 
 func newSlackClient() *slack.Client {
@@ -129,7 +130,17 @@ func slackReply(msg *slack.Message, text string) {
 
 	params := slack.NewPostMessageParameters()
 	params.AsUser = true
+
+	q.Q(msg)
+
 	params.ThreadTimestamp = msg.ThreadTimestamp
+	if params.ThreadTimestamp == "" {
+		params.ThreadTimestamp = msg.Timestamp
+	}
+	if params.ThreadTimestamp == "" {
+		params.ThreadTimestamp = msg.EventTimestamp
+	}
+
 	params.EscapeText = false
 	_, _, err := api.PostMessage(msg.Channel, text, params)
 
