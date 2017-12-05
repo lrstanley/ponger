@@ -256,7 +256,7 @@ func (h *Host) Watch() {
 				}
 			}
 
-			if bad != 3 {
+			if bad < 3 {
 				check = nil
 			}
 
