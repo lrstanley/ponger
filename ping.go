@@ -168,7 +168,7 @@ func (h *Hosts) EditHighlight(ts, user string, add bool) {
 			h.inv[key].Highlight = hl
 		}
 
-		if len(h.inv[key].Highlight) == 0 {
+		if len(h.inv[key].Highlight) == 0 && h.inv[key].OriginReaction != "" {
 			h.inv[key].Send("no longer monitoring: " + h.inv[key].IP.String())
 			_ = h.Remove(h.inv[key].ID, "")
 		}
