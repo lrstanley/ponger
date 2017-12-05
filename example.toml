@@ -1,6 +1,6 @@
 token = "your token here"
-outgoing_channel = "#some-event-channel"
+incoming_channel = "#some-channel"
 removal_timeout_secs = 1900
 forced_timeout_secs = 86400
 notify_on_start = false
-reaction_trigger = "robot_face"
+reaction_trigger = "ponger"
