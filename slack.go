@@ -29,6 +29,8 @@ func newSlackRTM(messageChan chan string) error {
 	go rtm.ManageConnection()
 	defer rtm.Disconnect()
 
+	firstConnection := true
+
 	for {
 		select {
 		case msg := <-rtm.IncomingEvents:
@@ -43,7 +45,11 @@ func newSlackRTM(messageChan chan string) error {
 					ev.Info.User.Name,
 				)
 				botID = ev.Info.User.ID
-				rtm.SendMessage(rtm.NewOutgoingMessage("_bot has been restarted (all checks flushed)_", channelID))
+
+				if firstConnection {
+					rtm.SendMessage(rtm.NewOutgoingMessage("_bot has been restarted (all checks flushed)_", channelID))
+					firstConnection = false
+				}
 			case *slack.MessageEvent:
 				msgHandler(msg.Data, &slack.Message{Msg: ev.Msg, SubMessage: ev.SubMessage}, false, botID, "")
 			case *slack.ReactionAddedEvent:
