@@ -192,20 +192,6 @@ type Host struct {
 	TotalDowntime time.Duration
 }
 
-func (h Host) AddReaction(action string) {
-	api := newSlackClient()
-	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
-		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel, err)
-	}
-}
-
-func (h Host) RemoveReaction(action string) {
-	api := newSlackClient()
-	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
-		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel, err)
-	}
-}
-
 func (h *Host) Send(text string) {
 	// If we've not sent the first reply and if we're not notifying on start.
 	// If we are notifying on start, then make sure this is the 'first' message
