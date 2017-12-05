@@ -205,7 +205,7 @@ func (h *Host) Send(text string) {
 		text = "<@" + strings.Join(h.Highlight, "> <@") + ">: " + text
 	}
 
-	slackReply(h.Origin, text)
+	slackReply(h.Origin, true, text)
 }
 
 func (h *Host) Sendf(format string, v ...interface{}) {

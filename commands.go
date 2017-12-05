@@ -140,7 +140,7 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 	}
 
 	if reply != "" {
-		slackReply(msg, reply)
+		slackReply(msg, false, reply)
 	}
 
 	return nil

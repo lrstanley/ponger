@@ -108,7 +108,7 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 				} else if rdel, ok := ev.(*slack.ReactionRemovedEvent); ok {
 					msg = slackRefToMessage(rdel.Item.Channel, rdel.User, rdel.Item.Timestamp)
 				}
-				slackReply(msg, fmt.Sprintf("<@%s>: %s already monitored, ignoring (%s)", msg.User, addrs[0].String(), buffer))
+				slackReply(msg, true, fmt.Sprintf("<@%s>: %s already monitored, ignoring (%s)", msg.User, addrs[0].String(), buffer))
 				continue
 			}
 
@@ -151,7 +151,7 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 				} else if rdel, ok := ev.(*slack.ReactionRemovedEvent); ok {
 					msg = slackRefToMessage(rdel.Item.Channel, rdel.User, rdel.Item.Timestamp)
 				}
-				slackReply(msg, fmt.Sprintf("<@%s>: %s already monitored, ignoring (%s)", msg.User, netIP.String(), buffer))
+				slackReply(msg, true, fmt.Sprintf("<@%s>: %s already monitored, ignoring (%s)", msg.User, netIP.String(), buffer))
 			}
 			continue
 		}

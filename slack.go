@@ -201,7 +201,7 @@ func slackMsgFromReaction(channel string, ts string) (hist *slack.History) {
 	return hist
 }
 
-func slackReply(msg *slack.Message, text string) {
+func slackReply(msg *slack.Message, thread bool, text string) {
 	api := newSlackClient()
 
 	params := slack.NewPostMessageParameters()
@@ -209,12 +209,14 @@ func slackReply(msg *slack.Message, text string) {
 
 	q.Q(msg)
 
-	params.ThreadTimestamp = msg.ThreadTimestamp
-	if params.ThreadTimestamp == "" {
-		params.ThreadTimestamp = msg.Timestamp
-	}
-	if params.ThreadTimestamp == "" {
-		params.ThreadTimestamp = msg.EventTimestamp
+	if thread {
+		params.ThreadTimestamp = msg.ThreadTimestamp
+		if params.ThreadTimestamp == "" {
+			params.ThreadTimestamp = msg.Timestamp
+		}
+		if params.ThreadTimestamp == "" {
+			params.ThreadTimestamp = msg.EventTimestamp
+		}
 	}
 
 	params.EscapeText = false
