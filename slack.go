@@ -88,7 +88,36 @@ func newSlackRTM(messageChan chan string) error {
 
 func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, reaction string) {
 	if msg.User == botID || msg.Text == "" {
+		logger.Printf("ignoring %s:%s: from bot or empty text", msg.Channel, msg.User)
 		return
+	}
+
+	var reactionUser string
+	if reaction != "" {
+		if radded, ok := ev.(*slack.ReactionAddedEvent); ok {
+			reactionUser = radded.User
+		} else if rdel, ok := ev.(*slack.ReactionRemovedEvent); ok {
+			reactionUser = rdel.User
+		}
+
+		if reactionUser == "" {
+			logger.Printf("skipping add/remove of reaction %s: user not found", reaction)
+			return
+		}
+
+		if hostGroup.Exists(msg.EventTimestamp) {
+			if remove {
+				hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, false)
+				return
+			}
+
+			hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, true)
+			return
+		} else if remove {
+			// If the reaction was removed from a message which we weren't
+			// tracking, don't do anything about it.
+			return
+		}
 	}
 
 	channelName := slackIDToChannel(msg.Channel)
@@ -138,13 +167,6 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 		}
 
 		for i := 0; i < len(hosts); i++ {
-			if remove {
-				if hostGroup.LRemove(hosts[i][1], "") {
-					slackReply(msg, "no longer monitoring: "+hosts[i][1])
-				}
-				continue
-			}
-
 			addrs, err := net.LookupIP(hosts[i][1])
 			if err != nil || hostGroup.Exists(addrs[0].String()) {
 				continue
@@ -157,6 +179,11 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 				Added:          time.Now(),
 				Buffer:         channelName,
 				OriginReaction: reaction,
+				Highlight:      []string{},
+			}
+
+			if reaction != "" {
+				host.Buffer = "via reaction in " + host.Buffer
 			}
 
 			go host.Watch()
@@ -174,13 +201,6 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 	for _, ip := range ips {
 		netIP := net.ParseIP(ip)
 
-		if remove && netIP != nil {
-			if hostGroup.LRemove(netIP.String(), "") {
-				slackReply(msg, "no longer monitoring: "+netIP.String())
-			}
-			continue
-		}
-
 		// Make sure it's a valid ip, and also make sure that
 		// we're not already tracking the ip.
 		if netIP == nil || hostGroup.Exists(netIP.String()) {
@@ -194,6 +214,11 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 			Added:          time.Now(),
 			Buffer:         channelName,
 			OriginReaction: reaction,
+			Highlight:      []string{},
+		}
+
+		if reaction != "" {
+			host.Buffer = "via reaction in " + host.Buffer
 		}
 
 		go host.Watch()
@@ -266,6 +291,12 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 		break
 	case "ping", "check", "pong":
 		argv := strings.Fields(args)
+
+		if len(argv) == 0 {
+			reply = "no hostname or ip address suppled."
+			break
+		}
+
 		for _, query := range argv {
 			var ip net.IP
 			var addrs []net.IP
@@ -281,12 +312,22 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 				ip = addrs[0]
 			}
 
+			if hostGroup.Exists(query) {
+				reply = "That host is already being monitored! (see `!active` for more info)"
+				break
+			}
+
 			host := &Host{
-				closer: make(chan struct{}, 1),
-				Origin: msg,
-				IP:     ip,
-				Added:  time.Now(),
-				Buffer: "via !check",
+				closer:    make(chan struct{}, 1),
+				Origin:    msg,
+				IP:        ip,
+				Added:     time.Now(),
+				Buffer:    "via !check",
+				Highlight: []string{},
+			}
+
+			if ch := slackIDToChannel(msg.Channel); ch != "" {
+				host.Buffer += " in " + ch
 			}
 
 			go host.Watch()
@@ -304,8 +345,8 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 		break
 	case "help", "halp":
 		reply = strings.Replace(`how2basic:
-|!disable| disables *ponger* auto-monitoring and clears all of *your* checks
-|!enable| enables *ponger* auto-monitoring
+|!disable| disables *ponger* auto-monitoring (for you) and clears all of *your* checks
+|!enable| enables *ponger* auto-monitoring (for you)
 |!active| lists all active host/ip checks
 |!clearall| clears all checks
 |!clear [query]| clear checks matching *query*, or all of *your* checks

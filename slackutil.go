@@ -130,6 +130,7 @@ func slackReply(msg *slack.Message, text string) {
 	params := slack.NewPostMessageParameters()
 	params.AsUser = true
 	params.ThreadTimestamp = msg.ThreadTimestamp
+	params.EscapeText = false
 	_, _, err := api.PostMessage(msg.Channel, text, params)
 
 	if err != nil {

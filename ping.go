@@ -56,9 +56,12 @@ func (h *Hosts) GlobRemove(query, user string) {
 		if query != "" {
 			if glob.Glob(strings.ToLower(query), strings.ToLower(key)) {
 				h.Remove(key, "checks cancelled")
+				continue
 			}
+
 			if glob.Glob(query, h.inv[key].IP.String()) {
 				h.Remove(key, "checks cancelled")
+				continue
 			}
 			return
 		}
@@ -88,6 +91,10 @@ func (h *Hosts) Exists(id string) (ok bool) {
 		if h.inv[key].IP.String() == id {
 			return true
 		}
+
+		if h.inv[key].Origin.EventTimestamp == id {
+			return true
+		}
 	}
 
 	return false
@@ -112,6 +119,8 @@ func (h *Hosts) Add(id string, host *Host) error {
 }
 
 func (h *Hosts) Remove(id, reason string) bool {
+	id = strings.ToLower(id)
+
 	if _, ok := h.inv[id]; ok {
 		if !h.inv[id].HasSentFirstReply {
 			h.inv[id].Send(reason)
@@ -135,6 +144,39 @@ func (h *Hosts) LRemove(id, reason string) bool {
 	return ok
 }
 
+func (h *Hosts) EditHighlight(ts, user string, add bool) {
+	h.Lock()
+	defer h.Unlock()
+
+	for key := range h.inv {
+		if h.inv[key].Origin.EventTimestamp != ts {
+			continue
+		}
+
+		if add {
+			if user == h.inv[key].Origin.User {
+				continue
+			}
+
+			h.inv[key].Highlight = append(h.inv[key].Highlight, user)
+		} else {
+			hl := []string{}
+			for _, uid := range h.inv[key].Highlight {
+				if uid != user {
+					hl = append(hl, uid)
+				}
+			}
+
+			h.inv[key].Highlight = hl
+		}
+
+		if len(h.inv[key].Highlight) == 0 {
+			h.inv[key].Send("no longer monitoring: " + h.inv[key].IP.String())
+			_ = h.Remove(h.inv[key].ID, "")
+		}
+	}
+}
+
 type Host struct {
 	ID                string
 	closer            chan struct{}
@@ -144,6 +186,7 @@ type Host struct {
 	IP                net.IP
 	Added             time.Time
 	HasSentFirstReply bool
+	Highlight         []string
 
 	Online        bool
 	LastOnline    time.Time
@@ -151,14 +194,14 @@ type Host struct {
 	TotalDowntime time.Duration
 }
 
-func (h *Host) AddReaction(action string) {
+func (h Host) AddReaction(action string) {
 	api := newSlackClient()
 	if err := api.AddReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
 		logger.Printf("error adding reaction %q to %q: %q", action, h.Origin.Channel, err)
 	}
 }
 
-func (h *Host) RemoveReaction(action string) {
+func (h Host) RemoveReaction(action string) {
 	api := newSlackClient()
 	if err := api.RemoveReaction(action, slack.NewRefToMessage(h.Origin.Channel, h.Origin.Timestamp)); err != nil {
 		logger.Printf("error removing reaction %q to %q: %q", action, h.Origin.Channel, err)
@@ -166,22 +209,6 @@ func (h *Host) RemoveReaction(action string) {
 }
 
 func (h *Host) Send(text string) {
-	api := newSlackClient()
-
-	params := slack.NewPostMessageParameters()
-	params.AsUser = true
-
-	// Don't use this if you don't want threads.
-	params.ThreadTimestamp = h.Origin.Timestamp
-
-	_, _, err := api.PostMessage(h.Origin.Channel, text, params)
-
-	if err != nil {
-		logger.Printf("[%s::%s] error while attempting to send message to channel: %s", h.IP, h.Origin.Username, err)
-	}
-}
-
-func (h *Host) Sendf(format string, v ...interface{}) {
 	if !h.HasSentFirstReply && conf.ReactionOnStart {
 		// Remove the "check" reaction we added at the start.
 		h.RemoveReaction("white_check_mark")
@@ -195,6 +222,14 @@ func (h *Host) Sendf(format string, v ...interface{}) {
 		h.HasSentFirstReply = true
 	}
 
+	if len(h.Highlight) > 0 {
+		text = "<@" + strings.Join(h.Highlight, "> <@") + ">: " + text
+	}
+
+	slackReply(h.Origin, text)
+}
+
+func (h *Host) Sendf(format string, v ...interface{}) {
 	h.Send(fmt.Sprintf(format, v...))
 }
 
