@@ -2,19 +2,19 @@ package main
 
 import (
 	"errors"
-	"fmt"
-	"net"
-	"regexp"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/nlopes/slack"
+	"github.com/y0ssar1an/q"
 )
 
-var reIP = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`)
-var reHostname = regexp.MustCompile(`(?m)(?:^| )((?:(?:[a-zA-Z]{1})|(?:[a-zA-Z]{1}[a-zA-Z]{1})|(?:[a-zA-Z]{1}[0-9]{1})|(?:[0-9]{1}[a-zA-Z]{1})|(?:[a-zA-Z0-9][a-zA-Z0-9-_.]{1,61}[a-zA-Z0-9]))\.(?:[a-zA-Z]{2,6}|[a-zA-Z0-9-]{2,30}\.[a-zA-Z]{2,3}))(?: |$)`)
-var reCommand = regexp.MustCompile(`^!([[:word:]]+)(?: (.*)?)?`)
-var reUnlink = regexp.MustCompile(`<http[^\|]+\|([^>]+)>`)
+func newSlackClient() *slack.Client {
+	api := slack.New(conf.Token)
+	api.SetDebug(flags.Debug)
+
+	return api
+}
 
 func newSlackRTM(messageChan chan string) error {
 	channelID, err := lookupChannel(conf.IncomingChannel)
@@ -92,293 +92,139 @@ func newSlackRTM(messageChan chan string) error {
 	return nil
 }
 
-func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, reaction string) {
-	if msg.User == botID || msg.Text == "" {
-		logger.Printf("ignoring %s:%s: from bot or empty text", msg.Channel, msg.User)
-		return
+var channelCache = struct {
+	sync.Mutex
+	cache map[string]string
+}{cache: make(map[string]string)}
+
+func lookupChannel(name string) (string, error) {
+	channelCache.Lock()
+	defer channelCache.Unlock()
+
+	id, ok := channelCache.cache[name]
+	if ok {
+		return id, nil
 	}
 
-	var reactionUser string
-	if reaction != "" {
-		if radded, ok := ev.(*slack.ReactionAddedEvent); ok {
-			reactionUser = radded.User
-		} else if rdel, ok := ev.(*slack.ReactionRemovedEvent); ok {
-			reactionUser = rdel.User
-		}
+	var err error
+	if id, err = slackChannelID(name); err != nil {
+		return "", err
+	}
 
-		if reactionUser == "" {
-			logger.Printf("skipping add/remove of reaction %s: user not found", reaction)
-			return
-		}
+	channelCache.cache[name] = id
 
-		if ok, _ := hostGroup.Exists(msg.EventTimestamp); ok {
-			if remove {
-				hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, false)
-				return
-			}
+	return id, nil
+}
 
-			hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, true)
-			return
-		} else if remove {
-			// If the reaction was removed from a message which we weren't
-			// tracking, don't do anything about it.
-			return
+func slackChannelID(channelName string) (string, error) {
+	if strings.HasPrefix(channelName, "#") {
+		channelName = strings.Replace(channelName, "#", "", 1)
+	}
+	channelName = strings.ToLower(channelName)
+
+	api := newSlackClient()
+
+	// Public channels.
+	channels, err := api.GetChannels(true)
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < len(channels); i++ {
+		if strings.ToLower(channels[i].Name) == channelName {
+			return channels[i].ID, nil
 		}
 	}
 
-	channelName := slackIDToChannel(msg.Channel)
-
-	if _, ok := ev.(*slack.MessageEvent); ok {
-		logger.Printf("<%s[%s]:%s> %s", msg.Channel, channelName, msg.User, msg.Text)
+	// I.e. "private" channels.
+	groups, err := api.GetGroups(true)
+	if err != nil {
+		return "", err
 	}
 
-	msg.Text = reUnlink.ReplaceAllString(msg.Text, "$1")
-
-	cmd := reCommand.FindStringSubmatch(msg.Text)
-	// Only parse it as a command, if it's not a reaction based message.
-	if reaction == "" && len(cmd) == 3 && cmd[1] != "" {
-		cmd[1] = strings.ToLower(cmd[1])
-		// Allow some commands even if it's not in the incoming channel.
-		if strings.ToLower(channelName) != strings.ToLower(conf.IncomingChannel) && channelName != "" {
-			if cmd[1] == "help" || cmd[1] == "halp" {
-				return
-			}
+	for i := 0; i < len(groups); i++ {
+		if strings.ToLower(groups[i].Name) == channelName {
+			return groups[i].ID, nil
 		}
-
-		err := cmdHandler(msg, cmd[1], cmd[2])
-		if err != nil {
-			logger.Printf("unable to execute command handler for %q %q: %s", cmd[1], cmd[2], err)
-		}
-		return
 	}
 
-	if reaction == "" && strings.ToLower(channelName) != strings.ToLower(conf.IncomingChannel) && channelName != "" {
-		logger.Printf("skipping: %q not input channel or PM, and not reaction", channelName)
-		return
+	return "", errors.New("channel not found")
+}
+
+func slackIDToChannel(cid string) string {
+	channelCache.Lock()
+	defer channelCache.Unlock()
+
+	id, ok := channelCache.cache[cid]
+	if ok {
+		return id
 	}
 
-	// Check if they want automagical checks.
-	set := GetUserSettings(msg.User)
-	if set.ChecksDisabled {
-		return
+	api := newSlackClient()
+	// Regular channel.
+	if ch, err := api.GetChannelInfo(cid); err == nil {
+		channelCache.cache[cid] = "#" + ch.Name
+	} else if ch, err := api.GetGroupInfo(cid); err == nil {
+		// Private channel.
+		channelCache.cache[cid] = "#" + ch.Name
+	} else {
+		// PM or group message?
+		channelCache.cache[cid] = ""
 	}
 
-	ips := reIP.FindAllString(msg.Text, -1)
-	if len(ips) == 0 {
-		// Check for hostnames.
-		hosts := reHostname.FindAllStringSubmatch(msg.Text, -1)
+	return channelCache.cache[cid]
+}
 
-		if hosts == nil {
-			return
-		}
+func slackMsgFromReaction(channel string, ts string) (hist *slack.History) {
+	api := newSlackClient()
+	var err error
 
-		for i := 0; i < len(hosts); i++ {
-			addrs, err := net.LookupIP(hosts[i][1])
-			if err != nil {
-				continue
-			}
+	params := slack.HistoryParameters{Oldest: ts, Inclusive: true}
 
-			if ok, buffer := hostGroup.Exists(addrs[0].String()); ok {
-				if reaction != "" {
-					slackReply(msg, fmt.Sprintf("%s already monitored, ignoring (%s)", addrs[0].String(), buffer))
-				}
-				continue
-			}
-
-			host := &Host{
-				closer:         make(chan struct{}, 1),
-				Origin:         msg,
-				IP:             addrs[0],
-				Added:          time.Now(),
-				Buffer:         channelName,
-				OriginReaction: reaction,
-				Highlight:      []string{},
-			}
-
-			if reaction != "" {
-				host.Buffer = "via reaction in " + host.Buffer
-			}
-
-			go host.Watch()
-			hostGroup.Add(hosts[i][1], host)
-
-			if conf.ReactionOnStart {
-				host.AddReaction("white_check_mark")
-			}
-		}
-
-		return
+	hist, err = api.GetChannelHistory(channel, params)
+	if err != nil {
+		hist, err = api.GetGroupHistory(channel, params)
+	}
+	if err != nil {
+		hist, err = api.GetIMHistory(channel, params)
 	}
 
-	// We should loop through each IP we find and track it.
-	for _, ip := range ips {
-		netIP := net.ParseIP(ip)
+	if err != nil {
+		logger.Printf("cannot lookup history for %s:%s: %s", channel, ts, err)
+		return nil
+	}
 
-		// Make sure it's a valid ip, and also make sure that
-		// we're not already tracking the ip.
-		if netIP == nil {
-			continue
-		}
-		if ok, buffer := hostGroup.Exists(netIP.String()); ok {
-			if reaction != "" {
-				slackReply(msg, fmt.Sprintf("%s already monitored, ignoring (%s)", netIP.String(), buffer))
-			}
-			continue
-		}
+	for i := 0; i < len(hist.Messages); i++ {
+		hist.Messages[i].Channel = channel
+	}
 
-		host := &Host{
-			closer:         make(chan struct{}, 1),
-			Origin:         msg,
-			IP:             netIP,
-			Added:          time.Now(),
-			Buffer:         channelName,
-			OriginReaction: reaction,
-			Highlight:      []string{},
-		}
+	return hist
+}
 
-		if reaction != "" {
-			host.Buffer = "via reaction in " + host.Buffer
-		}
+func slackReply(msg *slack.Message, text string) {
+	api := newSlackClient()
 
-		go host.Watch()
-		hostGroup.Add(netIP.String(), host)
+	params := slack.NewPostMessageParameters()
+	params.AsUser = true
 
-		if conf.ReactionOnStart {
-			host.AddReaction("white_check_mark")
-		}
+	q.Q(msg)
+
+	params.ThreadTimestamp = msg.ThreadTimestamp
+	if params.ThreadTimestamp == "" {
+		params.ThreadTimestamp = msg.Timestamp
+	}
+	if params.ThreadTimestamp == "" {
+		params.ThreadTimestamp = msg.EventTimestamp
+	}
+
+	params.EscapeText = false
+	_, _, err := api.PostMessage(msg.Channel, text, params)
+
+	if err != nil {
+		logger.Printf("error replying to %s:%s: %s", msg.Channel, msg.User, err)
 	}
 }
 
-func cmdHandler(msg *slack.Message, cmd, args string) error {
-	var reply string
-	var err error
-
-	switch cmd {
-	case "enable":
-		s := GetUserSettings(msg.User)
-		if s.ChecksDisabled {
-			s.ChecksDisabled = false
-			SetUserSettings(s)
-			reply = "*re-enabled automatic host checks for you.*"
-			break
-		}
-
-		reply = "*automatic host checks already enabled for you.*"
-		break
-	case "disable":
-		s := GetUserSettings(msg.User)
-		if s.ChecksDisabled {
-			reply = "*automatic host checks already disabled for you.*"
-			break
-		}
-
-		s.ChecksDisabled = true
-		SetUserSettings(s)
-		reply = "*disabled automatic host checks for you, and flushing existing checks.*"
-
-		hostGroup.GlobRemove("", msg.User)
-		break
-	case "active", "list", "listall", "all":
-		dump := hostGroup.Dump()
-
-		if dump == "" {
-			reply = "no active hosts being monitored."
-			break
-		}
-
-		reply = "```\n" + dump + "```"
-		break
-	case "clearall", "stopall", "killall":
-		hostGroup.GlobRemove("", "")
-
-		reply = "sending cancellation signal to active checks."
-		break
-	case "clear", "stop", "kill":
-		if args == "" {
-			hostGroup.GlobRemove("", msg.User)
-
-			reply = "sending cancellation signal to *your* active checks."
-			break
-		}
-
-		argv := strings.Fields(args)
-		for _, query := range argv {
-			hostGroup.GlobRemove(query, "")
-		}
-
-		reply = "sending cancellation signal to checks matching: `" + strings.Join(argv, "`, `") + "`"
-		break
-	case "ping", "check", "pong":
-		argv := strings.Fields(args)
-
-		if len(argv) == 0 {
-			reply = "no hostname or ip address suppled."
-			break
-		}
-
-		for _, query := range argv {
-			var ip net.IP
-			var addrs []net.IP
-
-			ip = net.ParseIP(query)
-			if ip == nil {
-				addrs, err = net.LookupIP(query)
-				if err != nil {
-					reply += fmt.Sprintf("invalid addr/host: `%s`\n", query)
-					continue
-				}
-
-				ip = addrs[0]
-			}
-
-			if ok, buffer := hostGroup.Exists(query); ok {
-				reply = fmt.Sprintf("That host is already being monitored! (`%s`)", buffer)
-				break
-			}
-
-			host := &Host{
-				closer:    make(chan struct{}, 1),
-				Origin:    msg,
-				IP:        ip,
-				Added:     time.Now(),
-				Buffer:    "via !check",
-				Highlight: []string{},
-			}
-
-			if ch := slackIDToChannel(msg.Channel); ch != "" {
-				host.Buffer += " in " + ch
-			}
-
-			go host.Watch()
-			err = hostGroup.Add(query, host)
-			if !conf.NotifyOnStart {
-				if err != nil {
-					reply += fmt.Sprintf("error adding `%s`: %s\n", query, err)
-					continue
-				}
-
-				reply += fmt.Sprintf("added check for `%s`\n", query)
-			}
-		}
-
-		break
-	case "help", "halp":
-		reply = strings.Replace(`how2basic:
-|!disable| disables *ponger* auto-monitoring (for you) and clears all of *your* checks
-|!enable| enables *ponger* auto-monitoring (for you)
-|!active| lists all active host/ip checks
-|!clearall| clears all checks
-|!clear [query]| clear checks matching *query*, or all of *your* checks
-|!help| this help info
-|message-reactions| start monitoring by adding the :%s: reaction to a message with an ip/host`, "|", "`", -1)
-		reply = fmt.Sprintf(reply, conf.ReactionTrigger)
-	default:
-		reply = fmt.Sprintf("unknown command `%s`. use `!help`?", cmd)
-	}
-
-	if reply != "" {
-		slackReply(msg, reply)
-	}
-
-	return nil
+func slackRefToMessage(channel, user, ts string) *slack.Message {
+	return &slack.Message{Msg: slack.Msg{Channel: channel, Timestamp: ts, User: user}}
 }

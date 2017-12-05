@@ -126,8 +126,6 @@ func (h *Hosts) Remove(id, reason string) bool {
 			h.inv[id].Send(reason)
 		}
 
-		h.inv[id].RemoveReaction("white_check_mark")
-
 		close(h.inv[id].closer)
 		delete(h.inv, id)
 		return true
@@ -155,7 +153,6 @@ func (h *Hosts) EditHighlight(ts, user string, add bool) {
 
 		if add {
 			if user == h.inv[key].Origin.User {
-				slackReply(h.inv[key].Origin, fmt.Sprintf("%s already monitored, ignoring (%s)", h.inv[key].IP.String(), h.inv[key].Buffer))
 				continue
 			}
 
@@ -210,11 +207,6 @@ func (h Host) RemoveReaction(action string) {
 }
 
 func (h *Host) Send(text string) {
-	if !h.HasSentFirstReply && conf.ReactionOnStart {
-		// Remove the "check" reaction we added at the start.
-		h.RemoveReaction("white_check_mark")
-	}
-
 	// If we've not sent the first reply and if we're not notifying on start.
 	// If we are notifying on start, then make sure this is the 'first' message
 	// by checking the LasstOnline/LastOffline which are only updated after
