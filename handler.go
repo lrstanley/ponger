@@ -15,6 +15,8 @@ var reHostname = regexp.MustCompile(`(?m)(?:^| )((?:(?:[a-zA-Z]{1})|(?:[a-zA-Z]{
 var reUnlink = regexp.MustCompile(`<http[^\|]+\|([^>]+)>`)
 
 func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, reaction string) {
+	defer catchPanic(msg)
+
 	if msg.User == botID || msg.Text == "" {
 		logger.Printf("ignoring %s:%s: from bot or empty text", msg.Channel, msg.User)
 		return

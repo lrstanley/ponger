@@ -2,11 +2,11 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/nlopes/slack"
-	"github.com/y0ssar1an/q"
 )
 
 func newSlackClient() *slack.Client {
@@ -206,8 +206,7 @@ func slackReply(msg *slack.Message, thread bool, text string) {
 
 	params := slack.NewPostMessageParameters()
 	params.AsUser = true
-
-	q.Q(msg)
+	params.EscapeText = false
 
 	if thread {
 		params.ThreadTimestamp = msg.ThreadTimestamp
@@ -219,7 +218,6 @@ func slackReply(msg *slack.Message, thread bool, text string) {
 		}
 	}
 
-	params.EscapeText = false
 	_, _, err := api.PostMessage(msg.Channel, text, params)
 
 	if err != nil {
@@ -229,4 +227,10 @@ func slackReply(msg *slack.Message, thread bool, text string) {
 
 func slackRefToMessage(channel, user, ts string) *slack.Message {
 	return &slack.Message{Msg: slack.Msg{Channel: channel, Timestamp: ts, User: user}}
+}
+
+func catchPanic(msg *slack.Message) {
+	if r := recover(); r != nil {
+		slackReply(msg, true, fmt.Sprintf("An exception occurred (`panic: %s`), poke lstanley. restarting bot.", r))
+	}
 }
