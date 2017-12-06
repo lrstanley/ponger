@@ -176,10 +176,13 @@ func slackIDToChannel(cid string) string {
 }
 
 func slackMsgFromReaction(channel string, ts string) (hist *slack.History) {
+	if ts == "" {
+		panic("cannot lookup message: no timestamp provided")
+	}
 	api := newSlackClient()
 	var err error
 
-	params := slack.HistoryParameters{Oldest: ts, Inclusive: true}
+	params := slack.HistoryParameters{Latest: ts, Inclusive: true, Count: 1}
 
 	hist, err = api.GetChannelHistory(channel, params)
 	if err != nil {
@@ -226,11 +229,19 @@ func slackReply(msg *slack.Message, thread bool, text string) {
 }
 
 func slackRefToMessage(channel, user, ts string) *slack.Message {
-	return &slack.Message{Msg: slack.Msg{Channel: channel, Timestamp: ts, User: user}}
+	return &slack.Message{Msg: slack.Msg{Channel: channel, Timestamp: ts, EventTimestamp: ts, User: user}}
 }
 
 func catchPanic(msg *slack.Message) {
 	if r := recover(); r != nil {
-		slackReply(msg, true, fmt.Sprintf("An exception occurred (`panic: %s`), poke lstanley. restarting bot.", r))
+
+		threaded := true
+		if ch, err := slackChannelID(conf.IncomingChannel); err == nil {
+			if ch != msg.Channel {
+				msg.Channel = ch
+				threaded = false
+			}
+		}
+		slackReply(msg, threaded, fmt.Sprintf("An exception occurred (`panic: %s`), poke lstanley. restarting bot.", r))
 	}
 }
