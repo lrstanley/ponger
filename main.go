@@ -14,6 +14,7 @@ type Flags struct {
 	ConfigFile string `short:"c" long:"config" description:"configuration file location" default:"config.toml"`
 	Debug      bool   `short:"d" long:"debug" description:"enables slack api debugging"`
 	UserDB     string `long:"user-db" description:"path to user settings database file" default:"user_settings.db"`
+	HTTP       string `long:"http" description:"address/port to bind to" default:":8080"`
 }
 
 var flags Flags
@@ -25,6 +26,8 @@ type Config struct {
 	ForcedTimeout   int    `toml:"forced_timeout_secs"`
 	NotifyOnStart   bool   `toml:"notify_on_start"`
 	ReactionTrigger string `toml:"reaction_trigger"`
+	HTTPUser        string `toml:"http_user"`
+	HTTPPasswd      string `toml:"http_password"`
 }
 
 var conf Config
@@ -53,6 +56,8 @@ func main() {
 	}
 
 	slack.SetLogger(logger)
+
+	go httpServer()
 
 	if err := newSlackRTM(toSlack); err != nil {
 		logger.Fatalln(err)

@@ -92,7 +92,7 @@ func (h *Hosts) Exists(id string) (ok bool, buffer string) {
 			return true, h.inv[key].Buffer
 		}
 
-		if h.inv[key].Origin.EventTimestamp == id {
+		if h.inv[key].Origin.Timestamp == id {
 			return true, h.inv[key].Buffer
 		}
 	}
@@ -147,7 +147,7 @@ func (h *Hosts) EditHighlight(ts, user string, add bool) {
 	defer h.Unlock()
 
 	for key := range h.inv {
-		if h.inv[key].Origin.EventTimestamp != ts {
+		if h.inv[key].Origin.Timestamp != ts {
 			continue
 		}
 

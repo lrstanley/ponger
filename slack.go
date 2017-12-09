@@ -16,6 +16,8 @@ func newSlackClient() *slack.Client {
 	return api
 }
 
+var lastConnectInfo *slack.Info
+
 func newSlackRTM(messageChan chan string) error {
 	channelID, err := lookupChannel(conf.IncomingChannel)
 	if err != nil {
@@ -32,60 +34,59 @@ func newSlackRTM(messageChan chan string) error {
 	firstConnection := true
 
 	for {
-		select {
-		case msg := <-rtm.IncomingEvents:
-			switch ev := msg.Data.(type) {
-			case *slack.ConnectedEvent:
-				logger.Printf(
-					"connected to %s.slack.com: %s (%d users, %d channels, user %q)",
-					ev.Info.Team.Domain,
-					ev.Info.Team.Name,
-					len(ev.Info.Users),
-					len(ev.Info.Channels),
-					ev.Info.User.Name,
-				)
-				botID = ev.Info.User.ID
+		msg := <-rtm.IncomingEvents
 
-				if firstConnection {
-					rtm.SendMessage(rtm.NewOutgoingMessage("_bot has been restarted (all checks flushed)_", channelID))
-					firstConnection = false
-				}
-			case *slack.MessageEvent:
-				msgHandler(msg.Data, &slack.Message{Msg: ev.Msg, SubMessage: ev.SubMessage}, false, botID, "")
-			case *slack.ReactionAddedEvent:
-				if ev.Reaction != conf.ReactionTrigger {
-					break
-				}
+		switch ev := msg.Data.(type) {
+		case *slack.ConnectedEvent:
+			lastConnectInfo = ev.Info
 
-				hist := slackMsgFromReaction(ev.Item.Channel, ev.Item.Timestamp)
-				if hist == nil || len(hist.Messages) == 0 {
-					break
-				}
+			logger.Printf(
+				"connected to %s.slack.com: %s (%d users, %d channels, user %q)",
+				ev.Info.Team.Domain,
+				ev.Info.Team.Name,
+				len(ev.Info.Users),
+				len(ev.Info.Channels),
+				ev.Info.User.Name,
+			)
+			botID = ev.Info.User.ID
 
-				msgHandler(msg.Data, &hist.Messages[0], false, botID, ev.Reaction)
-			case *slack.ReactionRemovedEvent:
-				if ev.Reaction != conf.ReactionTrigger {
-					break
-				}
-
-				hist := slackMsgFromReaction(ev.Item.Channel, ev.Item.Timestamp)
-				if hist == nil || len(hist.Messages) == 0 {
-					break
-				}
-
-				msgHandler(msg.Data, &hist.Messages[0], true, botID, ev.Reaction)
-			case *slack.RTMError:
-				return ev
-			case *slack.InvalidAuthEvent:
-				return errors.New("invalid credentials")
-			case *slack.DisconnectedEvent:
-				if ev.Intentional {
-					return nil
-				}
-			default:
+			if firstConnection {
+				rtm.SendMessage(rtm.NewOutgoingMessage("_bot has been restarted (all checks flushed)_", channelID))
+				firstConnection = false
 			}
-		case msg := <-messageChan:
-			rtm.SendMessage(rtm.NewOutgoingMessage(msg, channelID))
+		case *slack.MessageEvent:
+			msgHandler(msg.Data, &slack.Message{Msg: ev.Msg, SubMessage: ev.SubMessage}, false, botID, "")
+		case *slack.ReactionAddedEvent:
+			if ev.Reaction != conf.ReactionTrigger {
+				break
+			}
+
+			hist := slackMsgFromReaction(ev.Item.Channel, ev.Item.Timestamp)
+			if hist == nil || len(hist.Messages) == 0 {
+				break
+			}
+
+			msgHandler(msg.Data, &hist.Messages[0], false, botID, ev.Reaction)
+		case *slack.ReactionRemovedEvent:
+			if ev.Reaction != conf.ReactionTrigger {
+				break
+			}
+
+			hist := slackMsgFromReaction(ev.Item.Channel, ev.Item.Timestamp)
+			if hist == nil || len(hist.Messages) == 0 {
+				break
+			}
+
+			msgHandler(msg.Data, &hist.Messages[0], true, botID, ev.Reaction)
+		case *slack.RTMError:
+			return ev
+		case *slack.InvalidAuthEvent:
+			return errors.New("invalid credentials")
+		case *slack.DisconnectedEvent:
+			if ev.Intentional {
+				return nil
+			}
+		default:
 		}
 	}
 
@@ -216,9 +217,6 @@ func slackReply(msg *slack.Message, thread bool, text string) {
 		if params.ThreadTimestamp == "" {
 			params.ThreadTimestamp = msg.Timestamp
 		}
-		if params.ThreadTimestamp == "" {
-			params.ThreadTimestamp = msg.EventTimestamp
-		}
 	}
 
 	_, _, err := api.PostMessage(msg.Channel, text, params)
@@ -229,7 +227,7 @@ func slackReply(msg *slack.Message, thread bool, text string) {
 }
 
 func slackRefToMessage(channel, user, ts string) *slack.Message {
-	return &slack.Message{Msg: slack.Msg{Channel: channel, Timestamp: ts, EventTimestamp: ts, User: user}}
+	return &slack.Message{Msg: slack.Msg{Channel: channel, Timestamp: ts, User: user}}
 }
 
 func catchPanic(msg *slack.Message) {

@@ -7,6 +7,18 @@ type UserSettings struct {
 	ChecksDisabled bool
 }
 
+func GetAllUserSettings() (settings []*UserSettings) {
+	db := newUserDB()
+	defer db.Close()
+
+	err := db.All(&settings)
+	if err != nil {
+		panic(err)
+	}
+
+	return settings
+}
+
 func GetUserSettings(user string) (settings *UserSettings) {
 	db := newUserDB()
 	defer db.Close()

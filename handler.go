@@ -35,13 +35,13 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 			return
 		}
 
-		if ok, _ := hostGroup.Exists(msg.EventTimestamp); ok {
+		if ok, _ := hostGroup.Exists(msg.Timestamp); ok {
 			if remove {
-				hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, false)
+				hostGroup.EditHighlight(msg.Timestamp, reactionUser, false)
 				return
 			}
 
-			hostGroup.EditHighlight(msg.EventTimestamp, reactionUser, true)
+			hostGroup.EditHighlight(msg.Timestamp, reactionUser, true)
 			return
 		} else if remove {
 			// If the reaction was removed from a message which we weren't

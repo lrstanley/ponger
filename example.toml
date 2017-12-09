@@ -4,3 +4,5 @@ removal_timeout_secs = 1900
 forced_timeout_secs = 86400
 notify_on_start = false
 reaction_trigger = "ponger"
+http_user = "admin"
+http_password = "your_password"
