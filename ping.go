@@ -95,6 +95,10 @@ func (h *Hosts) Exists(id string) (ok bool, buffer string) {
 		if h.inv[key].Origin.Timestamp == id {
 			return true, h.inv[key].Buffer
 		}
+
+		if h.inv[key].Origin.ThreadTimestamp == id {
+			return true, h.inv[key].Buffer
+		}
 	}
 
 	return false, ""
@@ -131,7 +135,20 @@ func (h *Hosts) Remove(id, reason string) bool {
 		return true
 	}
 
-	return false
+	var removed bool
+	for key := range h.inv {
+		if h.inv[key].Origin.Timestamp == id || h.inv[key].Origin.ThreadTimestamp == id {
+			if !h.inv[key].HasSentFirstReply {
+				h.inv[key].Send(reason)
+			}
+
+			close(h.inv[key].closer)
+			delete(h.inv, key)
+			removed = true
+		}
+	}
+
+	return removed
 }
 
 func (h *Hosts) LRemove(id, reason string) bool {

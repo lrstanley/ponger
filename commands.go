@@ -56,8 +56,20 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 
 		reply = "sending cancellation signal to active checks."
 		break
-	case "clear", "stop", "kill":
+	case "clear", "stop", "kill", "done":
 		if args == "" {
+			if msg.ThreadTimestamp != "" {
+				// Check to see if the main message has any checks. If they didn't
+				// specify any args, just clear that threads checks.
+				if ok, _ := hostGroup.Exists(msg.ThreadTimestamp); ok {
+					ok = hostGroup.LRemove(msg.ThreadTimestamp, "requested via !clear")
+					if ok {
+						reply = "cancelling checks within *this thread*."
+						break
+					}
+				}
+			}
+
 			hostGroup.GlobRemove("", msg.User)
 
 			reply = "sending cancellation signal to *your* active checks."
@@ -140,7 +152,11 @@ func cmdHandler(msg *slack.Message, cmd, args string) error {
 	}
 
 	if reply != "" {
-		slackReply(msg, false, reply)
+		if msg.ThreadTimestamp != "" {
+			slackReply(msg, true, reply)
+		} else {
+			slackReply(msg, false, reply)
+		}
 	}
 
 	return nil

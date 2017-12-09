@@ -64,7 +64,7 @@ func msgHandler(ev interface{}, msg *slack.Message, remove bool, botID string, r
 		cmd[1] = strings.ToLower(cmd[1])
 		// Allow some commands even if it's not in the incoming channel.
 		if strings.ToLower(channelName) != strings.ToLower(conf.IncomingChannel) && channelName != "" {
-			if cmd[1] == "help" || cmd[1] == "halp" {
+			if (cmd[1] == "help" || cmd[1] == "halp") && msg.ThreadTimestamp == "" {
 				return
 			}
 		}
