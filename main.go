@@ -8,6 +8,7 @@ import (
 	"github.com/BurntSushi/toml"
 	gflags "github.com/jessevdk/go-flags"
 	"github.com/nlopes/slack"
+	"github.com/paulstuart/ping"
 )
 
 type Flags struct {
@@ -15,6 +16,7 @@ type Flags struct {
 	Debug      bool   `short:"d" long:"debug" description:"enables slack api debugging"`
 	UserDB     string `long:"user-db" description:"path to user settings database file" default:"user_settings.db"`
 	HTTP       string `long:"http" description:"address/port to bind to" default:":8080"`
+	Ping       string `long:"ping" short:"p" description:"test the ping functionality builtin to ponger"`
 }
 
 var flags Flags
@@ -39,6 +41,17 @@ func main() {
 	_, err := parser.Parse()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	if flags.Ping != "" {
+		err = ping.Pinger(flags.Ping, 2)
+		if err == nil {
+			logger.Println("PING OK")
+			os.Exit(0)
+		}
+
+		logger.Printf("PING FAIL: %s", err)
 		os.Exit(1)
 	}
 
