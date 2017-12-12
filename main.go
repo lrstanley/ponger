@@ -16,6 +16,7 @@ type Flags struct {
 	Debug      bool   `short:"d" long:"debug" description:"enables slack api debugging"`
 	UserDB     string `long:"user-db" description:"path to user settings database file" default:"user_settings.db"`
 	HTTP       string `long:"http" description:"address/port to bind to" default:":8080"`
+	HTTPPrefix string `long:"http-prefix" description:"prefix uri for the http server (e.g. if behind a proxy)"`
 	Ping       string `long:"ping" short:"p" description:"test the ping functionality builtin to ponger"`
 }
 
