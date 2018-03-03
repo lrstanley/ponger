@@ -5,7 +5,6 @@ PATH := $(GOPATH)/bin:$(PATH)
 export $(PATH)
 
 BINARY=ponger
-RELEASE_DIR=/opt/ponger
 LD_FLAGS += -s -w
 
 help:
