@@ -1,0 +1,20 @@
+# goreleaser.yml
+build:
+  binary: ponger
+  goos:
+    - linux
+    - freebsd
+  goarch:
+    - amd64
+  ldflags: -s -w
+nfpm:
+  homepage: https://github.com/lrstanley/ponger
+  maintainer: Liam Stanley <me@liamstanley.io>
+  description: Server monitoring and reporting bot for Slack
+  license: MIT
+  formats:
+    - deb
+    - rpm
+  bindir: /usr/bin
+release:
+  draft: true

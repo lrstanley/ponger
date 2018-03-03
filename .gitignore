@@ -1,5 +1,6 @@
 *.log
 ~*
+dist/
 *.db
 *.tmp
 *.txt
