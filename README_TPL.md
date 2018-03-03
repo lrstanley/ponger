@@ -31,14 +31,14 @@ $ dpkg -i ponger_[[tag]]_[[os]]_[[arch]].deb
 ### CentOS/Redhat
 
 ```console
-$ yum localinstall https://liam.sh/ghr/ponger[[tag]]_[[os]]_[[arch]].rpm
+$ yum localinstall https://liam.sh/ghr/ponger_[[tag]]_[[os]]_[[arch]].rpm
 ```
 
 ### Manual Install
 
 ```console
-$ wget https://liam.sh/ghr/ponger[[tag]]_[[os]]_[[arch]].tar.gz
-$ tar -C /usr/bin/ -xzvf ponger[[tag]]_[[os]]_[[arch]].tar.gz ponger
+$ wget https://liam.sh/ghr/ponger_[[tag]]_[[os]]_[[arch]].tar.gz
+$ tar -C /usr/bin/ -xzvf ponger_[[tag]]_[[os]]_[[arch]].tar.gz ponger
 $ chmod +x /usr/bin/ponger
 ```
 

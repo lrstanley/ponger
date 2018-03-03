@@ -1,4 +1,4 @@
-<p align="center">ponger -- server monitoring and reporting bot for Slack</p>
+<p align="center">ponger -- Server monitoring and reporting bot for Slack</p>
 <p align="center">
   <a href="https://travis-ci.org/lrstanley/ponger"><img src="https://travis-ci.org/lrstanley/ponger.svg?branch=master" alt="Build Status"></a>
   <a href="https://byteirc.org/channel/%23%2Fdev%2Fnull"><img src="https://img.shields.io/badge/ByteIRC-%23%2Fdev%2Fnull-blue.svg" alt="IRC Chat"></a>
@@ -24,21 +24,21 @@ the utility.
 ### Ubuntu/Debian
 
 ```console
-$ wget https://liam.sh/ghr/ponger__linux_amd64.deb
-$ dpkg -i ponger__linux_amd64.deb
+$ wget https://liam.sh/ghr/ponger_0.1.0_linux_amd64.deb
+$ dpkg -i ponger_0.1.0_linux_amd64.deb
 ```
 
 ### CentOS/Redhat
 
 ```console
-$ yum localinstall https://liam.sh/ghr/ponger_linux_amd64.rpm
+$ yum localinstall https://liam.sh/ghr/ponger_0.1.0_linux_amd64.rpm
 ```
 
 ### Manual Install
 
 ```console
-$ wget https://liam.sh/ghr/ponger_linux_amd64.tar.gz
-$ tar -C /usr/bin/ -xzvf ponger_linux_amd64.tar.gz ponger
+$ wget https://liam.sh/ghr/ponger_0.1.0_linux_amd64.tar.gz
+$ tar -C /usr/bin/ -xzvf ponger_0.1.0_linux_amd64.tar.gz ponger
 $ chmod +x /usr/bin/ponger
 ```
 

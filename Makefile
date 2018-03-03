@@ -6,6 +6,7 @@ export $(PATH)
 
 BINARY=ponger
 LD_FLAGS += -s -w
+VERSION=$(shell git describe --tags --abbrev=0 2>/dev/null | sed -r "s:^v::g")
 RSRC=README_TPL.md
 ROUT=README.md
 
