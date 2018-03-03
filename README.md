@@ -82,19 +82,8 @@ $ ponger -c yourconf.toml -p "8.8.8.8"
 
 ## Contributing
 
-Below are a few guidelines if you would like to contribute. Keep the code
-clean, standardized, and much of the quality should match Golang's standard
-library and common idioms.
-
-   * Always test using the latest Go version.
-   * Always use `gofmt` before committing anything.
-   * Always have proper documentation before committing.
-   * Keep the same whitespacing, documentation, and newline format as the
-     rest of the project.
-   * Only use 3rd party libraries if necessary. If only a small portion of
-     the library is needed, simply rewrite it within the library to prevent
-     useless imports.
-   * Also see [golang/go/wiki/CodeReviewComments](https://github.com/golang/go/wiki/CodeReviewComments)
+Please review the [CONTRIBUTING](CONTRIBUTING.md) doc for submitting issues/a guide
+on submitting pull requests and helping out.
 
 ## License
 
