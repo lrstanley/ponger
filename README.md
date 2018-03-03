@@ -15,6 +15,8 @@
 - [Contributing](#contributing)
 - [License](#license)
 
+![](https://raw.githubusercontent.com/lrstanley/ponger/master/misc/screen-watch.png)
+
 ## Installation
 
 Check out the [releases](https://github.com/lrstanley/ponger/releases)
