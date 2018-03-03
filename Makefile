@@ -33,7 +33,7 @@ fetch: ## Fetches the necessary dependencies to build.
 	$(GOPATH)/bin/govendor sync
 
 clean: ## Cleans up generated files/folders from the build.
-	/bin/rm -fv "${BINARY}"
+	/bin/rm -fv "${BINARY}" dist/
 
 debug: clean fetch ## Runs the webserver with debug mode.
 	go run -ldflags "${LD_FLAGS}" *.go -c config.toml -d
