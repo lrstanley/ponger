@@ -5,7 +5,6 @@ PATH := $(GOPATH)/bin:$(PATH)
 export $(PATH)
 
 BINARY=ponger
-LD_FLAGS += -s -w
 VERSION=$(shell git describe --tags --abbrev=0 2>/dev/null | sed -r "s:^v::g")
 RSRC=README_TPL.md
 ROUT=README.md
@@ -33,10 +32,10 @@ fetch: ## Fetches the necessary dependencies to build.
 	$(GOPATH)/bin/govendor sync
 
 clean: ## Cleans up generated files/folders from the build.
-	/bin/rm -fv "${BINARY}" dist/
+	/bin/rm -rfv "${BINARY}" dist/
 
 debug: clean fetch ## Runs the webserver with debug mode.
-	go run -ldflags "${LD_FLAGS}" *.go -c config.toml -d
+	go run *.go -c config.toml -d
 
 build: clean fetch ## Compile and generate a binary.
-	go build -ldflags "${LD_FLAGS}" -x -v -o ${BINARY}
+	go build -ldflags '-d -s -w' -tags netgo -installsuffix netgo -v -x -o "${BINARY}"
